@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#fffaf4">
+  <title>随机抽背 · Lucky Recitation</title>
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/mammoth@1.12.3/mammoth.browser.min.js"></script>
+  <script defer src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="site-header">
+      <div class="brand-mark" aria-hidden="true"><span>✦</span></div>
+      <div class="brand-copy">
+        <span class="eyebrow">CLASSROOM GAME</span>
+        <h1>随机抽背 <span>Lucky Recitation</span></h1>
+      </div>
+      <div class="header-actions">
+        <label class="class-picker" for="classSelect"><span>当前班级</span><select id="classSelect" aria-label="选择班级"></select></label>
+        <span class="header-pill" id="headerProgress">本轮 0 / 0</span>
+        <button class="icon-button" id="soundButton" type="button" aria-label="关闭提示音" title="提示音">♪</button>
+        <button class="settings-top-button" id="openSettingsTop" type="button">⚙ <span>设置</span></button>
+      </div>
+    </header>
+
+    <main class="dashboard">
+      <section class="stage" aria-label="抽背区">
+        <div class="stage-intro">
+          <div>
+            <p class="section-kicker">A LITTLE MOMENT OF LUCK</p>
+            <h2>今天，轮到谁来回答？</h2>
+            <p id="activeClassCaption">正在抽背：班级 1 · 请先导入名单</p>
+          </div>
+          <div class="stage-sparkle" aria-hidden="true">✳</div>
+        </div>
+
+        <article class="draw-card question-card" id="questionCard">
+          <div class="card-topline">
+            <span class="card-label"><span class="label-dot"></span> QUESTION · 题目</span>
+            <span class="card-counter" id="questionCount">题库 0 题</span>
+          </div>
+          <div class="draw-content">
+            <p class="draw-hint" id="questionHint">先导入 Word 题库</p>
+            <div class="draw-value" id="questionValue">准备好开始了吗？</div>
+            <p class="answer-line" id="answerLine" hidden><span>参考答案</span><strong id="answerValue"></strong></p>
+          </div>
+          <div class="card-bottomline">
+            <span class="direction-tag" id="directionTag">出题方向待选择</span>
+            <span class="tiny-star" aria-hidden="true">✦ ✦</span>
+          </div>
+        </article>
+
+        <div class="action-row" aria-label="抽取操作">
+          <button class="action-button start-button" id="startButton" type="button"><span class="action-icon">↻</span><span id="startButtonLabel">开始抽取</span></button>
+          <button class="action-button stop-button" id="stopButton" type="button" disabled><span class="action-icon">■</span> STOP</button>
+          <button class="action-button check-button" id="checkButton" type="button" disabled><span class="action-icon">✓</span> CHECK</button>
+        </div>
+
+        <article class="draw-card student-card" id="studentCard">
+          <div class="card-topline">
+            <span class="card-label"><span class="label-dot"></span> STUDENT · 学生</span>
+            <span class="card-counter" id="studentCount">本轮 0 / 0</span>
+          </div>
+          <div class="draw-content student-content">
+            <p class="draw-hint" id="studentHint">先导入 Excel 名单</p>
+            <div class="draw-value" id="studentValue">幸运同学是谁？</div>
+          </div>
+          <div class="card-bottomline">
+            <span class="student-remaining" id="remainingText">还有 0 位同学待抽</span>
+            <span class="tiny-star" aria-hidden="true">✳ ✳</span>
+          </div>
+        </article>
+
+        <p class="stage-note" id="stageNote" role="status">导入名单与题库后，就可以开始抽背啦。</p>
+      </section>
+
+      <aside class="side-panel" aria-label="计时与记录">
+        <section class="timer-card" aria-label="回答倒计时">
+          <div class="panel-heading"><span class="panel-icon">◷</span><span>ANSWER TIMER</span><span class="panel-chinese">回答倒计时</span></div>
+          <div class="timer-face" id="timerFace" style="--progress: 0%">
+            <div class="timer-inner"><strong id="timerValue">5</strong><span>SECONDS</span></div>
+          </div>
+          <p class="timer-status" id="timerStatus">抽出学生后自动开始</p>
+          <div class="timer-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+        </section>
+
+        <section class="record-card" aria-label="答题记录">
+          <div class="record-heading">
+            <div><span class="panel-heading"><span class="panel-icon">▤</span><span>RECORD</span></span><h3>本轮答题记录</h3></div>
+            <span class="record-count" id="recordCount">0 / 0</span>
+          </div>
+          <button class="record-overview-trigger" id="openRecordOverview" type="button"><span>▦ 查看全班作答概览</span><b aria-hidden="true">↗</b></button>
+          <p class="record-explainer">答错的同学会自动排在前面</p>
+          <div class="record-list" id="recordList" aria-live="polite"></div>
+        </section>
+
+        <button class="settings-banner" id="openSettings" type="button"><span class="settings-icon">⚙</span><span><strong>导入 & 设置</strong><small>名单 · 题库 · 出题方向</small></span><b aria-hidden="true">↗</b></button>
+      </aside>
+    </main>
+    <footer>MAKE EVERY ANSWER COUNT <span>✳</span> 随机抽背小课堂</footer>
+  </div>
+
+  <dialog class="settings-dialog" id="settingsDialog" aria-labelledby="settingsTitle">
+    <div class="dialog-head"><div><p class="section-kicker">YOUR CLASSROOM, YOUR RULES</p><h2 id="settingsTitle">抽背设置</h2></div><button class="dialog-close" id="closeSettings" type="button" aria-label="关闭设置">×</button></div>
+    <div class="dialog-body">
+      <section class="settings-section"><div class="settings-section-head"><span class="settings-number">01</span><div><h3>固定班级名单</h3><p>5 个班级分别保存名单。选择班级后导入该班 Excel。</p></div></div>
+        <div class="class-settings-picker"><label for="settingsClassSelect">正在设置</label><select id="settingsClassSelect" aria-label="在设置中选择班级"></select></div>
+        <div class="class-name-row"><label for="classNameInput">当前班级名称</label><input id="classNameInput" type="text" maxlength="24" placeholder="例如：三年级一班"><button id="saveClassName" type="button">保存名称</button></div>
+        <p class="class-roster-note" id="classRosterNote">当前班级尚未导入名单</p>
+        <label class="upload-box" for="studentFile"><span class="upload-emoji">👥</span><span><strong id="studentFileLabel">选择 Excel 文件</strong><small>支持 .xlsx / .xls</small></span><span class="upload-arrow">＋</span></label>
+        <input class="visually-hidden" id="studentFile" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
+      </section>
+      <section class="settings-section"><div class="settings-section-head"><span class="settings-number">02</span><div><h3>更新英汉题库</h3><p>Word 每段一题，例如：1. daily routine 每日常规。更新题库不会清空各班已抽记录。</p></div></div>
+        <label class="upload-box pink-upload" for="questionFile"><span class="upload-emoji">📚</span><span><strong id="questionFileLabel">选择 DOCX 文件</strong><small>支持 .docx</small></span><span class="upload-arrow">＋</span></label>
+        <input class="visually-hidden" id="questionFile" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+      </section>
+      <div class="import-preview" id="importPreview" hidden><div class="preview-top"><strong id="previewTitle">导入预览</strong><button id="cancelImport" type="button" aria-label="取消导入">×</button></div><p id="previewSummary"></p><ul id="previewExamples"></ul><p class="preview-warning" id="previewWarning" hidden></p><button class="apply-button" id="applyImport" type="button">确认导入</button></div>
+      <section class="settings-section"><div class="settings-section-head"><span class="settings-number">03</span><div><h3>出题方向</h3><p>互相转化会在每次抽取时随机决定方向。</p></div></div>
+        <div class="mode-options"><label><input type="radio" name="direction" value="en-zh"><span>英 → 中</span></label><label><input type="radio" name="direction" value="zh-en"><span>中 → 英</span></label><label><input type="radio" name="direction" value="mixed"><span>互相转化</span></label></div>
+      </section>
+      <section class="settings-section reset-section"><div><h3>当前班级开启新一轮</h3><p>只清空所选班级的抽取进度和 Record，保留 5 个班级名单与题库。</p></div><button id="resetRound" type="button">重置本轮</button></section>
+      <p class="dialog-footnote">名单、题库和记录保存在当前设备的这个浏览器。更换设备或清除网站数据后，需要重新导入名单；导入新名单只重置当前班级。</p>
+    </div>
+  </dialog>
+  <dialog class="overview-dialog" id="recordOverviewDialog" aria-labelledby="overviewTitle">
+    <div class="overview-head">
+      <div><p class="section-kicker">THE WHOLE CLASS AT A GLANCE</p><h2 id="overviewTitle">全班作答概览</h2><p id="overviewSummary">本轮已抽 0 / 0</p></div>
+      <button class="dialog-close" id="closeRecordOverview" type="button" aria-label="关闭全班作答概览">×</button>
+    </div>
+    <div class="overview-body">
+      <div class="overview-stats" id="overviewStats" aria-label="作答统计"></div>
+      <div class="wrong-copy-panel"><div><strong id="wrongNamesTitle">答错名单 · 0 人</strong><p id="wrongNames">本轮暂无答错同学</p></div><button id="copyWrongNames" type="button" disabled>复制答错名单</button></div>
+      <div class="overview-scroll"><div class="overview-grid" id="overviewGrid" role="list"></div></div>
+    </div>
+  </dialog>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

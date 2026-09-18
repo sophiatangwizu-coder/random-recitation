@@ -1,0 +1,613 @@
+(() => {
+  "use strict";
+
+  const STORAGE_KEY = "lucky-recitation-v2";
+  const LEGACY_KEY = "lucky-recitation-v1";
+  const COUNTDOWN_MS = 5000;
+  const $ = (id) => document.getElementById(id);
+  const el = {
+    headerProgress: $("headerProgress"), soundButton: $("soundButton"), classSelect: $("classSelect"), settingsClassSelect: $("settingsClassSelect"), classNameInput: $("classNameInput"), classRosterNote: $("classRosterNote"), activeClassCaption: $("activeClassCaption"),
+    questionCard: $("questionCard"), questionCount: $("questionCount"), questionHint: $("questionHint"), questionValue: $("questionValue"), answerLine: $("answerLine"), answerValue: $("answerValue"), directionTag: $("directionTag"),
+    studentCard: $("studentCard"), studentCount: $("studentCount"), studentHint: $("studentHint"), studentValue: $("studentValue"), remainingText: $("remainingText"),
+    startButton: $("startButton"), startButtonLabel: $("startButtonLabel"), stopButton: $("stopButton"), checkButton: $("checkButton"), stageNote: $("stageNote"),
+    timerFace: $("timerFace"), timerValue: $("timerValue"), timerStatus: $("timerStatus"), timerCard: document.querySelector(".timer-card"),
+    recordCount: $("recordCount"), recordList: $("recordList"), recordOverviewDialog: $("recordOverviewDialog"), overviewTitle: $("overviewTitle"), overviewSummary: $("overviewSummary"), overviewStats: $("overviewStats"), overviewGrid: $("overviewGrid"), wrongNamesTitle: $("wrongNamesTitle"), wrongNames: $("wrongNames"), copyWrongNames: $("copyWrongNames"),
+    settingsDialog: $("settingsDialog"), studentFile: $("studentFile"), questionFile: $("questionFile"), studentFileLabel: $("studentFileLabel"), questionFileLabel: $("questionFileLabel"),
+    importPreview: $("importPreview"), previewTitle: $("previewTitle"), previewSummary: $("previewSummary"), previewExamples: $("previewExamples"), previewWarning: $("previewWarning"), applyImport: $("applyImport"), toast: $("toast")
+  };
+
+  const newClass = (index) => ({
+    id: `class-${index + 1}`, name: `班级 ${index + 1}`, students: [], studentDeck: [], questionDeck: [],
+    usedStudentIds: [], records: [], currentId: null, phase: "idle", timerEndsAt: null, questionCycle: 1, fileName: ""
+  });
+
+  const newState = () => ({
+    version: 2, classes: Array.from({ length: 5 }, (_, index) => newClass(index)), activeClassId: "class-1",
+    students: [], questions: [], studentDeck: [], questionDeck: [], usedStudentIds: [], records: [],
+    currentId: null, mode: "mixed", sound: true, phase: "idle", timerEndsAt: null, questionCycle: 1,
+    files: { students: "", questions: "" }
+  });
+
+  function snapshotActive(s) {
+    const selected = s.classes.find((item) => item.id === s.activeClassId);
+    if (!selected) return;
+    for (const key of ["students", "studentDeck", "questionDeck", "usedStudentIds", "records", "currentId", "phase", "timerEndsAt", "questionCycle"]) selected[key] = s[key];
+    selected.fileName = s.files.students || "";
+  }
+
+  function activateClass(s, id) {
+    const selected = s.classes.find((item) => item.id === id);
+    if (!selected) return;
+    s.activeClassId = id;
+    for (const key of ["students", "studentDeck", "questionDeck", "usedStudentIds", "records", "currentId", "phase", "timerEndsAt", "questionCycle"]) s[key] = selected[key];
+    s.files.students = selected.fileName || "";
+    if (s.phase === "rolling") s.phase = "idle";
+    if (s.phase === "counting" && (!s.currentId || !s.timerEndsAt || Date.now() >= s.timerEndsAt)) s.phase = s.currentId ? "await-check" : "idle";
+    if (!s.currentId && ["await-check", "answer"].includes(s.phase)) s.phase = "idle";
+  }
+
+  function loadState() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+      if (saved?.version === 2 && Array.isArray(saved.classes) && Array.isArray(saved.questions)) {
+        const s = { ...newState(), ...saved };
+        s.files = { students: "", questions: "", ...(saved.files || {}) };
+        s.classes = Array.from({ length: 5 }, (_, index) => {
+          const previous = saved.classes.find((item) => item?.id === `class-${index + 1}`) || {};
+          const item = { ...newClass(index), ...previous };
+          for (const key of ["students", "studentDeck", "questionDeck", "usedStudentIds", "records"]) if (!Array.isArray(item[key])) item[key] = [];
+          return item;
+        });
+        if (!["en-zh", "zh-en", "mixed"].includes(s.mode)) s.mode = "mixed";
+        if (!s.classes.some((item) => item.id === s.activeClassId)) s.activeClassId = "class-1";
+        activateClass(s, s.activeClassId || "class-1");
+        return s;
+      }
+      const old = JSON.parse(localStorage.getItem(LEGACY_KEY) || "null");
+      if (old?.version === 1 && Array.isArray(old.students) && Array.isArray(old.questions) && Array.isArray(old.records)) {
+        const s = newState();
+        s.questions = old.questions;
+        s.mode = ["en-zh", "zh-en", "mixed"].includes(old.mode) ? old.mode : "mixed";
+        s.sound = old.sound !== false;
+        s.files = { students: old.files?.students || "", questions: old.files?.questions || "" };
+        for (const key of ["students", "studentDeck", "questionDeck", "usedStudentIds", "records"]) s[key] = Array.isArray(old[key]) ? old[key] : [];
+        for (const key of ["currentId", "phase", "timerEndsAt", "questionCycle"]) if (old[key] !== undefined) s[key] = old[key];
+        snapshotActive(s);
+        activateClass(s, "class-1");
+        return s;
+      }
+      return newState();
+    } catch (_) { return newState(); }
+  }
+
+  let state = loadState();
+  let preview = null;
+  let pendingImport = null;
+  let rollInterval = null;
+  let timerInterval = null;
+  let toastTimeout = null;
+  let audioContext = null;
+
+  function save() {
+    snapshotActive(state);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+    catch (_) { showToast("浏览器存储空间不足，刷新后可能无法保留进度。"); }
+  }
+
+  function shuffled(values) {
+    const output = [...values];
+    for (let i = output.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [output[i], output[j]] = [output[j], output[i]];
+    }
+    return output;
+  }
+
+  function choose(values) { return values[Math.floor(Math.random() * values.length)]; }
+  function makeId(prefix) { return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`; }
+  function currentRecord() { return state.records.find((record) => record.id === state.currentId) || null; }
+  function directionForMode() { return state.mode === "mixed" ? (Math.random() < .5 ? "en-zh" : "zh-en") : state.mode; }
+  function directionName(direction) { return direction === "en-zh" ? "英 → 中" : "中 → 英"; }
+  function studentById(id) { return state.students.find((student) => student.id === id); }
+  function questionById(id) { return state.questions.find((question) => question.id === id); }
+  function remainingCount() { return Math.max(0, state.students.length - state.usedStudentIds.length); }
+  function activeClass() { return state.classes.find((item) => item.id === state.activeClassId); }
+
+  function renderClassSelect() {
+    for (const select of [el.classSelect, el.settingsClassSelect]) {
+      const options = state.classes.map((item) => {
+        const option = document.createElement("option");
+        option.value = item.id;
+        option.textContent = `${item.name}${item.students.length ? ` · ${item.students.length} 人` : " · 未导入"}`;
+        return option;
+      });
+      select.replaceChildren(...options);
+      select.value = state.activeClassId;
+    }
+    if (document.activeElement !== el.classNameInput) el.classNameInput.value = activeClass().name;
+    el.classRosterNote.textContent = state.students.length ? `已固定 ${state.students.length} 位同学 · ${activeClass().name}` : `${activeClass().name}尚未导入名单`;
+  }
+
+  function showToast(message) {
+    el.toast.textContent = message;
+    el.toast.classList.add("is-visible");
+    clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(() => el.toast.classList.remove("is-visible"), 4200);
+  }
+
+  function makeText(tag, className, value) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    node.textContent = value;
+    return node;
+  }
+
+  function renderDraw() {
+    const record = state.phase === "rolling" ? preview : currentRecord();
+    el.questionCard.classList.toggle("is-rolling", state.phase === "rolling");
+    el.studentCard.classList.toggle("is-rolling", state.phase === "rolling");
+    el.questionCount.textContent = `题库 ${state.questions.length} 题`;
+    el.studentCount.textContent = `本轮 ${state.usedStudentIds.length} / ${state.students.length}`;
+    el.headerProgress.textContent = `本轮 ${state.usedStudentIds.length} / ${state.students.length}`;
+    el.activeClassCaption.textContent = `正在抽背：${activeClass().name} · ${state.students.length ? `${state.students.length} 位同学` : "请先导入名单"}`;
+    el.remainingText.textContent = `还有 ${remainingCount()} 位同学待抽`;
+    if (record) {
+      el.questionHint.textContent = state.phase === "rolling" ? "题目滚动中 · 点击 STOP 定格" : `请回答 · ${directionName(record.direction)}`;
+      el.questionValue.textContent = record.prompt;
+      el.studentHint.textContent = state.phase === "rolling" ? "正在寻找幸运同学…" : "这一次，轮到你啦！";
+      el.studentValue.textContent = record.studentName;
+      el.directionTag.textContent = directionName(record.direction);
+      el.answerLine.hidden = !record.revealed || state.phase === "rolling";
+      el.answerValue.textContent = record.revealed ? record.answer : "";
+    } else {
+      el.questionHint.textContent = state.questions.length ? "题库已经准备就绪" : "先导入 Word 题库";
+      el.questionValue.textContent = state.questions.length ? "点击开始抽取" : "准备好开始了吗？";
+      el.studentHint.textContent = state.students.length ? "名单已经准备就绪" : "先导入 Excel 名单";
+      el.studentValue.textContent = state.students.length ? "幸运同学是谁？" : "等待名单导入";
+      el.directionTag.textContent = state.mode === "mixed" ? "互相转化 · 随机方向" : directionName(state.mode);
+      el.answerLine.hidden = true;
+    }
+    if (!state.students.length || !state.questions.length) el.stageNote.textContent = "导入名单与题库后，就可以开始抽背啦。";
+    else if (remainingCount() === 0) el.stageNote.textContent = "本轮同学已全部抽完，请在设置中手动开启新一轮。";
+    else if (state.phase === "rolling") el.stageNote.textContent = "题目和学生正在同时滚动，点击 STOP 一起揭晓。";
+    else if (state.phase === "counting") el.stageNote.textContent = "回答倒计时正在进行，时间到后可查看答案。";
+    else if (state.phase === "await-check") el.stageNote.textContent = "时间到！点击 CHECK 查看答案，也可以稍后在 Record 中判定。";
+    else if (state.phase === "answer") el.stageNote.textContent = "请在 Record 中标记答对或答错，或开始下一轮。";
+    else el.stageNote.textContent = "点击开始，让幸运同学和题目一起出现。";
+  }
+
+  function renderControls() {
+    const ready = !!state.students.length && !!state.questions.length && remainingCount() > 0;
+    el.startButton.disabled = !ready || state.phase === "rolling" || state.phase === "counting";
+    el.startButtonLabel.textContent = state.usedStudentIds.length ? "下一轮抽取" : "开始抽取";
+    el.stopButton.disabled = state.phase !== "rolling";
+    const current = currentRecord();
+    el.checkButton.disabled = !current || state.phase === "counting" || state.phase === "rolling" || current.revealed;
+    el.soundButton.textContent = state.sound ? "♪" : "♩";
+    el.soundButton.setAttribute("aria-label", state.sound ? "关闭提示音" : "开启提示音");
+    el.soundButton.title = state.sound ? "关闭提示音" : "开启提示音";
+  }
+
+  function renderTimer() {
+    const running = state.phase === "counting";
+    const finished = !!state.currentId && (state.phase === "await-check" || state.phase === "answer");
+    let remaining = COUNTDOWN_MS;
+    if (running) remaining = Math.max(0, state.timerEndsAt - Date.now());
+    if (finished) remaining = 0;
+    el.timerValue.textContent = String(Math.ceil(remaining / 1000));
+    el.timerFace.style.setProperty("--progress", `${((COUNTDOWN_MS - remaining) / COUNTDOWN_MS) * 100}%`);
+    el.timerCard.classList.toggle("is-running", running);
+    el.timerCard.classList.toggle("is-done", finished);
+    el.timerStatus.textContent = running ? "请在 5 秒内回答" : finished ? "时间到 · 可以查看答案" : "抽出学生后自动开始";
+  }
+
+  function renderRecords() {
+    el.recordCount.textContent = `${state.usedStudentIds.length} / ${state.students.length}`;
+    el.recordList.replaceChildren();
+    if (!state.records.length) {
+      const empty = makeText("div", "record-empty", "");
+      empty.append(makeText("span", "", "✧"), makeText("strong", "", "等待第一位同学"), makeText("small", "", "抽取结果会出现在这里"));
+      el.recordList.append(empty);
+      return;
+    }
+    const sorted = [...state.records].sort((a, b) => Number(b.status === "wrong") - Number(a.status === "wrong") || b.createdAt - a.createdAt);
+    for (const record of sorted) {
+      const item = makeText("article", `record-item ${record.status === "wrong" ? "wrong" : record.status === "correct" ? "correct" : ""}`, "");
+      const head = makeText("div", "record-item-head", "");
+      head.append(makeText("strong", "record-item-name", record.studentName));
+      head.append(makeText("span", "record-item-time", new Date(record.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })));
+      head.append(makeText("span", "record-status", record.status === "wrong" ? "答错" : record.status === "correct" ? "答对" : "待判定"));
+      item.append(head);
+      const detail = makeText("p", "record-item-detail", `${directionName(record.direction)} · ${record.prompt}`);
+      item.append(detail);
+      if (record.revealed) {
+        const answer = makeText("p", "record-item-detail", "答案：");
+        answer.append(makeText("span", "answer-text", record.answer));
+        item.append(answer);
+      }
+      const actions = makeText("div", "record-item-actions", "");
+      if (!record.revealed) {
+        const reveal = makeText("button", "record-action", "查看答案");
+        reveal.type = "button";
+        reveal.disabled = record.id === state.currentId && state.phase === "counting";
+        reveal.addEventListener("click", () => revealAnswer(record.id));
+        actions.append(reveal);
+      } else {
+        const correct = makeText("button", `record-action correct-choice ${record.status === "correct" ? "is-selected" : ""}`, "✓ 答对");
+        const wrong = makeText("button", `record-action wrong-choice ${record.status === "wrong" ? "is-selected" : ""}`, "× 答错");
+        correct.type = wrong.type = "button";
+        correct.setAttribute("aria-pressed", String(record.status === "correct"));
+        wrong.setAttribute("aria-pressed", String(record.status === "wrong"));
+        correct.addEventListener("click", () => markRecord(record.id, "correct"));
+        wrong.addEventListener("click", () => markRecord(record.id, "wrong"));
+        actions.append(correct, wrong);
+      }
+      item.append(actions);
+      el.recordList.append(item);
+    }
+  }
+
+  function overviewData() {
+    const records = new Map(state.records.map((record) => [record.studentId, record]));
+    const used = new Set(state.usedStudentIds);
+    const students = state.students.map((student, index) => {
+      const record = records.get(student.id);
+      const status = record?.status === "wrong" ? "wrong" : record?.status === "correct" ? "correct" : used.has(student.id) ? "pending" : "undrawn";
+      return { ...student, index, status };
+    });
+    return { students, wrongNames: students.filter((student) => student.status === "wrong").map((student) => student.name) };
+  }
+
+  function renderOverview() {
+    const { students, wrongNames } = overviewData();
+    const counts = { wrong: 0, correct: 0, pending: 0, undrawn: 0 };
+    students.forEach((student) => { counts[student.status] += 1; });
+    el.overviewTitle.textContent = `${activeClass().name} · 作答概览`;
+    el.overviewSummary.textContent = `本轮已抽 ${state.usedStudentIds.length} / ${state.students.length} 位同学 · 答错优先展示`;
+    el.overviewStats.replaceChildren();
+    for (const [label, count, kind] of [["已抽", state.usedStudentIds.length, ""], ["答错", counts.wrong, "wrong"], ["答对", counts.correct, "correct"], ["待判定", counts.pending, "pending"], ["未抽", counts.undrawn, "undrawn"]]) {
+      el.overviewStats.append(makeText("span", `overview-stat ${kind}`, `${label} ${count}`));
+    }
+    el.overviewGrid.replaceChildren();
+    if (!students.length) {
+      el.overviewGrid.append(makeText("p", "overview-empty", "当前班级尚未导入学生名单。"));
+    } else {
+      const statusName = { wrong: "× 答错", correct: "✓ 答对", pending: "◷ 待判定", undrawn: "○ 未抽" };
+      students.sort((a, b) => Number(b.status === "wrong") - Number(a.status === "wrong") || a.index - b.index);
+      for (const student of students) {
+        const tile = makeText("div", `overview-student ${student.status}`, "");
+        tile.setAttribute("role", "listitem");
+        tile.setAttribute("aria-label", `${student.name}，${statusName[student.status]}`);
+        tile.append(makeText("span", "student-order", String(student.index + 1).padStart(2, "0")), makeText("strong", "", student.name), makeText("span", "student-status", statusName[student.status]));
+        el.overviewGrid.append(tile);
+      }
+    }
+    el.wrongNamesTitle.textContent = `答错名单 · ${wrongNames.length} 人`;
+    el.wrongNames.textContent = wrongNames.length ? wrongNames.join("、") : "本轮暂无答错同学";
+    el.copyWrongNames.disabled = wrongNames.length === 0;
+  }
+
+  async function copyWrongNames() {
+    const names = overviewData().wrongNames;
+    if (!names.length) { showToast("本轮暂无答错同学。"); return; }
+    const content = names.join("\n");
+    let copied = false;
+    try {
+      if (window.navigator?.clipboard?.writeText) { await window.navigator.clipboard.writeText(content); copied = true; }
+    } catch (_) { /* try the older browser copy path below */ }
+    if (!copied) {
+      const temporary = document.createElement("textarea");
+      temporary.value = content;
+      temporary.style.position = "fixed";
+      temporary.style.opacity = "0";
+      document.body.append(temporary);
+      try { temporary.select(); copied = document.execCommand("copy"); }
+      catch (_) { copied = false; }
+      finally { temporary.remove(); }
+    }
+    showToast(copied ? `已复制 ${names.length} 位答错同学的姓名。` : "复制失败，请长按弹窗中的名单手动复制。");
+  }
+
+  function renderFilesAndMode() {
+    el.studentFileLabel.textContent = state.files.students || "选择 Excel 文件";
+    el.questionFileLabel.textContent = state.files.questions || "选择 DOCX 文件";
+    for (const radio of document.querySelectorAll('input[name="direction"]')) radio.checked = radio.value === state.mode;
+  }
+
+  function renderAll() { renderClassSelect(); renderDraw(); renderControls(); renderTimer(); renderRecords(); renderFilesAndMode(); if (el.recordOverviewDialog.open) renderOverview(); }
+
+  function ensureAudio() {
+    if (!state.sound) return;
+    try {
+      const AudioCtor = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtor) return;
+      audioContext ||= new AudioCtor();
+      if (audioContext.state === "suspended") audioContext.resume();
+    } catch (_) { /* visual timer remains available */ }
+  }
+
+  function playDing() {
+    if (!state.sound || !audioContext || audioContext.state !== "running") return;
+    try {
+      for (const [offset, frequency] of [[0, 660], [.16, 880]]) {
+        const oscillator = audioContext.createOscillator();
+        const volume = audioContext.createGain();
+        oscillator.type = "sine";
+        oscillator.frequency.value = frequency;
+        volume.gain.setValueAtTime(.0001, audioContext.currentTime + offset);
+        volume.gain.exponentialRampToValueAtTime(.15, audioContext.currentTime + offset + .02);
+        volume.gain.exponentialRampToValueAtTime(.0001, audioContext.currentTime + offset + .3);
+        oscillator.connect(volume).connect(audioContext.destination);
+        oscillator.start(audioContext.currentTime + offset);
+        oscillator.stop(audioContext.currentTime + offset + .31);
+      }
+    } catch (_) { /* visual timer remains available */ }
+  }
+
+  function stopTimerInterval() { if (timerInterval) clearInterval(timerInterval); timerInterval = null; }
+  function startTimerInterval() {
+    stopTimerInterval();
+    timerInterval = setInterval(() => {
+      if (state.phase !== "counting") { stopTimerInterval(); return; }
+      if (Date.now() >= state.timerEndsAt) finishTimer(true);
+      else renderTimer();
+    }, 100);
+  }
+  function finishTimer(announce) {
+    if (state.phase !== "counting") return;
+    stopTimerInterval();
+    state.phase = "await-check";
+    save(); renderAll();
+    if (announce) { playDing(); showToast("5 秒到！点击 CHECK 查看答案。"); }
+  }
+
+  function rollingCandidate() {
+    const studentIds = state.studentDeck.length ? state.studentDeck : state.students.filter((student) => !state.usedStudentIds.includes(student.id)).map((student) => student.id);
+    const questionIds = state.questionDeck.length ? state.questionDeck : state.questions.map((question) => question.id);
+    const student = studentById(choose(studentIds));
+    const question = questionById(choose(questionIds));
+    if (!student || !question) return null;
+    const direction = directionForMode();
+    return { studentName: student.name, prompt: direction === "en-zh" ? question.en : question.zh, direction, revealed: false };
+  }
+
+  function startRolling() {
+    if (!state.students.length || !state.questions.length) { el.settingsDialog.showModal(); showToast("请先导入学生名单和英汉题库。"); return; }
+    if (remainingCount() === 0) { showToast("本轮所有同学都抽过了，请手动重置本轮。"); return; }
+    if (state.phase === "rolling" || state.phase === "counting") return;
+    state.currentId = null;
+    state.timerEndsAt = null;
+    state.phase = "rolling";
+    preview = rollingCandidate();
+    save(); renderAll();
+    rollInterval = setInterval(() => { preview = rollingCandidate(); renderDraw(); }, 85);
+  }
+
+  function stopRolling() {
+    if (state.phase !== "rolling") return;
+    clearInterval(rollInterval); rollInterval = null;
+    if (!state.studentDeck.length) {
+      const remaining = state.students.filter((student) => !state.usedStudentIds.includes(student.id)).map((student) => student.id);
+      state.studentDeck = shuffled(remaining);
+    }
+    if (!state.questionDeck.length) {
+      state.questionDeck = shuffled(state.questions.map((question) => question.id));
+      state.questionCycle += 1;
+      showToast(`题库已抽完，正在使用第 ${state.questionCycle} 轮题目。`);
+    }
+    const student = studentById(state.studentDeck.pop());
+    const question = questionById(state.questionDeck.pop());
+    if (!student || !question) { state.phase = "idle"; preview = null; save(); renderAll(); showToast("抽取失败，请重新导入文件后再试。"); return; }
+    const direction = directionForMode();
+    const record = {
+      id: makeId("answer"), studentId: student.id, studentName: student.name, questionId: question.id,
+      direction, prompt: direction === "en-zh" ? question.en : question.zh,
+      answer: direction === "en-zh" ? question.zh : question.en,
+      status: "pending", revealed: false, createdAt: Date.now()
+    };
+    state.records.push(record);
+    state.usedStudentIds.push(student.id);
+    state.currentId = record.id;
+    state.timerEndsAt = Date.now() + COUNTDOWN_MS;
+    state.phase = "counting";
+    preview = null;
+    ensureAudio();
+    save(); renderAll(); startTimerInterval();
+  }
+
+  function revealAnswer(id) {
+    const record = state.records.find((item) => item.id === id);
+    if (!record || record.revealed || (id === state.currentId && state.phase === "counting")) return;
+    record.revealed = true;
+    if (id === state.currentId) state.phase = "answer";
+    save(); renderAll();
+  }
+
+  function markRecord(id, status) {
+    const record = state.records.find((item) => item.id === id);
+    if (!record || !record.revealed) return;
+    record.status = status;
+    save(); renderAll();
+  }
+
+  function resetRoundData() {
+    stopTimerInterval();
+    clearInterval(rollInterval); rollInterval = null;
+    state.studentDeck = shuffled(state.students.map((student) => student.id));
+    state.questionDeck = shuffled(state.questions.map((question) => question.id));
+    state.usedStudentIds = [];
+    state.records = [];
+    state.currentId = null;
+    state.timerEndsAt = null;
+    state.phase = "idle";
+    state.questionCycle = 1;
+    preview = null;
+  }
+
+  function switchClass(id) {
+    if (id === state.activeClassId || !state.classes.some((item) => item.id === id)) return;
+    stopTimerInterval();
+    clearInterval(rollInterval); rollInterval = null;
+    if (state.phase === "rolling") { state.phase = "idle"; state.currentId = null; }
+    snapshotActive(state);
+    activateClass(state, id);
+    if (state.students.length && !state.studentDeck.length && !state.usedStudentIds.length) state.studentDeck = shuffled(state.students.map((student) => student.id));
+    if (state.questions.length && !state.questionDeck.length && !state.records.length) state.questionDeck = shuffled(state.questions.map((question) => question.id));
+    preview = null;
+    pendingImport = null;
+    showImportPreview();
+    save(); renderAll();
+    if (state.phase === "counting") startTimerInterval();
+    showToast(`已切换到${activeClass().name}。`);
+  }
+
+  function saveClassName() {
+    const name = el.classNameInput.value.trim();
+    if (!name) { showToast("请输入班级名称。"); return; }
+    activeClass().name = name;
+    save(); renderAll();
+    showToast(`已保存班级名称：${name}`);
+  }
+
+  function parseDocxText(rawText) {
+    const entries = [];
+    const rejected = [];
+    const paragraphs = rawText.split(/\n\s*\n/).map((part) => part.replace(/\s+/g, " ").trim()).filter(Boolean);
+    paragraphs.forEach((paragraph, index) => {
+      const withoutNumber = paragraph.replace(/^(?:第\s*)?\d{1,4}\s*[.．、)）:：-]\s*/, "").trim();
+      const match = /[\u3400-\u9fff]/.exec(withoutNumber);
+      const english = match ? withoutNumber.slice(0, match.index).trim() : "";
+      const chinese = match ? withoutNumber.slice(match.index).trim() : "";
+      if (!english || !chinese) rejected.push(`第 ${index + 1} 段：${paragraph.slice(0, 55)}`);
+      else entries.push({ id: makeId("q"), en: english, zh: chinese });
+    });
+    return { entries, rejected };
+  }
+
+  function parseSheet(workbook) {
+    const sheetName = workbook.SheetNames[0];
+    if (!sheetName) throw new Error("Excel 文件中没有工作表。");
+    const rows = window.XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: "", blankrows: false, raw: false });
+    const entries = [];
+    const duplicate = [];
+    const seen = new Set();
+    rows.forEach((row, index) => {
+      const name = String(row[0] ?? "").trim();
+      if (!name || /^(姓名|学生姓名|name|student name)$/i.test(name)) return;
+      if (/^\d+$/.test(name)) return;
+      const key = name.toLocaleLowerCase();
+      if (seen.has(key)) { duplicate.push(`第 ${index + 1} 行：${name}`); return; }
+      seen.add(key);
+      entries.push({ id: makeId("s"), name });
+    });
+    return { entries, rejected: duplicate };
+  }
+
+  function showImportPreview() {
+    if (!pendingImport) { el.importPreview.hidden = true; return; }
+    const isStudents = pendingImport.kind === "students";
+    el.importPreview.hidden = false;
+    el.previewTitle.textContent = isStudents ? "名单导入预览" : "题库导入预览";
+    el.previewSummary.textContent = `文件：${pendingImport.fileName} · ${isStudents ? `${activeClass().name} · ` : ""}识别 ${pendingImport.entries.length} ${isStudents ? "位学生" : "道词条"}`;
+    el.previewExamples.replaceChildren();
+    for (const item of pendingImport.entries.slice(0, 5)) {
+      el.previewExamples.append(makeText("li", "", isStudents ? item.name : `${item.en} → ${item.zh}`));
+    }
+    el.previewWarning.hidden = pendingImport.rejected.length === 0;
+    el.previewWarning.textContent = pendingImport.rejected.length ? `${isStudents ? "重复姓名" : "无法识别的段落"} ${pendingImport.rejected.length} 条，导入时将跳过。${pendingImport.rejected.slice(0, 3).join("；")}` : "";
+    el.applyImport.disabled = pendingImport.entries.length === 0;
+  }
+
+  async function handleFile(kind, file) {
+    if (!file) return;
+    const requestedClassId = state.activeClassId;
+    pendingImport = null; showImportPreview();
+    try {
+      if (kind === "questions" && !/\.docx$/i.test(file.name)) throw new Error("题库请使用 .docx 格式；旧版 .doc 请先另存为 .docx。");
+      if (kind === "students" && !/\.(xlsx|xls)$/i.test(file.name)) throw new Error("名单请使用 .xlsx 或 .xls 格式。");
+      let parsed;
+      if (kind === "questions") {
+        if (!window.mammoth) throw new Error("Word 解析组件加载失败，请检查网络连接后刷新网页。");
+        const result = await window.mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
+        parsed = parseDocxText(result.value);
+      } else {
+        if (!window.XLSX) throw new Error("Excel 解析组件加载失败，请检查网络连接后刷新网页。");
+        const workbook = window.XLSX.read(await file.arrayBuffer());
+        parsed = parseSheet(workbook);
+      }
+      if (kind === "students" && state.activeClassId !== requestedClassId) { showToast("解析期间切换了班级，请在目标班级重新选择名单。"); return; }
+      pendingImport = { kind, classId: requestedClassId, fileName: file.name, ...parsed };
+      showImportPreview();
+      if (!parsed.entries.length) showToast("没有识别到可导入的内容，请检查文件格式。");
+    } catch (error) {
+      showToast(error.message || "文件解析失败，请检查文件是否损坏。");
+    }
+  }
+
+  function applyImport() {
+    if (!pendingImport || !pendingImport.entries.length) return;
+    const { kind, entries, fileName, classId } = pendingImport;
+    if (kind === "students") {
+      if (classId !== state.activeClassId) { showToast("班级已切换，请重新选择名单文件。"); return; }
+      if (state.records.length && !window.confirm(`替换${activeClass().name}名单会清空该班本轮进度和 Record。确定继续吗？`)) return;
+      state.students = entries;
+      state.files.students = fileName;
+      resetRoundData();
+    } else {
+      if (state.phase === "rolling") { clearInterval(rollInterval); rollInterval = null; state.phase = "idle"; preview = null; }
+      snapshotActive(state);
+      state.questions = entries;
+      state.files.questions = fileName;
+      for (const classroom of state.classes) {
+        classroom.questionDeck = shuffled(entries.map((question) => question.id));
+        classroom.questionCycle = 1;
+      }
+      activateClass(state, state.activeClassId);
+    }
+    pendingImport = null;
+    showImportPreview();
+    save(); renderAll();
+    if (kind === "questions") el.settingsDialog.close();
+    showToast(kind === "students" ? `已为${activeClass().name}导入 ${entries.length} 位学生，该班本轮进度已重置。` : `题库已更新为 ${entries.length} 道词条，各班已抽记录已保留。`);
+  }
+
+  function resetRound() {
+    if (!state.students.length && !state.questions.length) { showToast("请先导入名单与题库。"); return; }
+    if (state.records.length && !window.confirm(`确定为${activeClass().name}开启新一轮吗？该班本轮进度和 Record 将清空。`)) return;
+    resetRoundData(); save(); renderAll();
+    el.settingsDialog.close();
+    showToast(`${activeClass().name}的新一轮已准备好，所有同学均可再次抽取。`);
+  }
+
+  function init() {
+    if (state.students.length && !state.studentDeck.length && !state.usedStudentIds.length) state.studentDeck = shuffled(state.students.map((student) => student.id));
+    if (state.questions.length && !state.questionDeck.length && !state.records.length) state.questionDeck = shuffled(state.questions.map((question) => question.id));
+    if (state.phase === "counting" && Date.now() >= state.timerEndsAt) state.phase = "await-check";
+    save(); renderAll();
+    if (state.phase === "counting") startTimerInterval();
+    el.startButton.addEventListener("click", startRolling);
+    el.stopButton.addEventListener("click", stopRolling);
+    el.checkButton.addEventListener("click", () => { if (state.currentId) revealAnswer(state.currentId); });
+    el.soundButton.addEventListener("click", () => { state.sound = !state.sound; if (state.sound) ensureAudio(); save(); renderControls(); });
+    el.classSelect.addEventListener("change", () => switchClass(el.classSelect.value));
+    el.settingsClassSelect.addEventListener("change", () => switchClass(el.settingsClassSelect.value));
+    $("saveClassName").addEventListener("click", saveClassName);
+    el.classNameInput.addEventListener("keydown", (event) => { if (event.key === "Enter") saveClassName(); });
+    $("openSettings").addEventListener("click", () => el.settingsDialog.showModal());
+    $("openSettingsTop").addEventListener("click", () => el.settingsDialog.showModal());
+    $("openRecordOverview").addEventListener("click", () => { renderOverview(); el.recordOverviewDialog.showModal(); });
+    $("closeRecordOverview").addEventListener("click", () => el.recordOverviewDialog.close());
+    el.recordOverviewDialog.addEventListener("click", (event) => { if (event.target === el.recordOverviewDialog) el.recordOverviewDialog.close(); });
+    el.copyWrongNames.addEventListener("click", copyWrongNames);
+    $("closeSettings").addEventListener("click", () => el.settingsDialog.close());
+    el.settingsDialog.addEventListener("click", (event) => { if (event.target === el.settingsDialog) el.settingsDialog.close(); });
+    el.studentFile.addEventListener("change", (event) => { handleFile("students", event.target.files[0]); event.target.value = ""; });
+    el.questionFile.addEventListener("change", (event) => { handleFile("questions", event.target.files[0]); event.target.value = ""; });
+    el.applyImport.addEventListener("click", applyImport);
+    $("cancelImport").addEventListener("click", () => { pendingImport = null; showImportPreview(); });
+    $("resetRound").addEventListener("click", resetRound);
+    for (const radio of document.querySelectorAll('input[name="direction"]')) radio.addEventListener("change", () => { state.mode = radio.value; save(); renderAll(); });
+  }
+
+  init();
+})();
