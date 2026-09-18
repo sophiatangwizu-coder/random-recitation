@@ -97,7 +97,7 @@
           <div class="record-list" id="recordList" aria-live="polite"></div>
         </section>
 
-        <button class="settings-banner" id="openSettings" type="button"><span class="settings-icon">⚙</span><span><strong>导入 & 设置</strong><small>名单 · 题库 · 出题方向</small></span><b aria-hidden="true">↗</b></button>
+        <button class="settings-banner" id="openSettings" type="button"><span class="settings-icon">⚙</span><span><strong>导入 & 设置</strong><small>名单 · 题库 · 方向 · 倒计时</small></span><b aria-hidden="true">↗</b></button>
       </aside>
     </main>
     <footer>MAKE EVERY ANSWER COUNT <span>✳</span> 随机抽背小课堂</footer>
@@ -120,6 +120,9 @@
       <div class="import-preview" id="importPreview" hidden><div class="preview-top"><strong id="previewTitle">导入预览</strong><button id="cancelImport" type="button" aria-label="取消导入">×</button></div><p id="previewSummary"></p><ul id="previewExamples"></ul><p class="preview-warning" id="previewWarning" hidden></p><button class="apply-button" id="applyImport" type="button">确认导入</button></div>
       <section class="settings-section"><div class="settings-section-head"><span class="settings-number">03</span><div><h3>出题方向</h3><p>互相转化会在每次抽取时随机决定方向。</p></div></div>
         <div class="mode-options"><label><input type="radio" name="direction" value="en-zh"><span>英 → 中</span></label><label><input type="radio" name="direction" value="zh-en"><span>中 → 英</span></label><label><input type="radio" name="direction" value="mixed"><span>互相转化</span></label></div>
+      </section>
+      <section class="settings-section"><div class="settings-section-head"><span class="settings-number">04</span><div><h3>回答倒计时</h3><p>抽取停止后开始计时；更改时长从下一次抽取生效。</p></div></div>
+        <div class="timer-options" role="group" aria-label="回答倒计时时长"><label><input type="radio" name="timer-seconds" value="3"><span>3 秒</span></label><label><input type="radio" name="timer-seconds" value="5"><span>5 秒</span></label><label><input type="radio" name="timer-seconds" value="8"><span>8 秒</span></label><label><input type="radio" name="timer-seconds" value="10"><span>10 秒</span></label></div>
       </section>
       <section class="settings-section reset-section"><div><h3>当前班级开启新一轮</h3><p>只清空所选班级的抽取进度和 Record，保留 5 个班级名单与题库。</p></div><button id="resetRound" type="button">重置本轮</button></section>
       <p class="dialog-footnote">名单、题库和记录保存在当前设备的这个浏览器。更换设备或清除网站数据后，需要重新导入名单；导入新名单只重置当前班级。</p>

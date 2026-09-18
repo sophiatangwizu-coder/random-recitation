@@ -3,7 +3,8 @@
 
   const STORAGE_KEY = "lucky-recitation-v2";
   const LEGACY_KEY = "lucky-recitation-v1";
-  const COUNTDOWN_MS = 5000;
+  const DEFAULT_TIMER_SECONDS = 5;
+  const TIMER_CHOICES = [3, 5, 8, 10];
   const $ = (id) => document.getElementById(id);
   const el = {
     headerProgress: $("headerProgress"), soundButton: $("soundButton"), classSelect: $("classSelect"), settingsClassSelect: $("settingsClassSelect"), classNameInput: $("classNameInput"), classRosterNote: $("classRosterNote"), activeClassCaption: $("activeClassCaption"),
@@ -24,7 +25,7 @@
   const newState = () => ({
     version: 2, classes: Array.from({ length: 5 }, (_, index) => newClass(index)), activeClassId: "class-1",
     students: [], questions: [], studentDeck: [], questionDeck: [], usedStudentIds: [], records: [],
-    currentId: null, mode: "mixed", sound: true, phase: "idle", timerEndsAt: null, questionCycle: 1,
+    currentId: null, mode: "mixed", timerSeconds: DEFAULT_TIMER_SECONDS, sound: true, phase: "idle", timerEndsAt: null, questionCycle: 1,
     files: { students: "", questions: "" }
   });
 
@@ -59,6 +60,7 @@
           return item;
         });
         if (!["en-zh", "zh-en", "mixed"].includes(s.mode)) s.mode = "mixed";
+        if (!TIMER_CHOICES.includes(s.timerSeconds)) s.timerSeconds = DEFAULT_TIMER_SECONDS;
         if (!s.classes.some((item) => item.id === s.activeClassId)) s.activeClassId = "class-1";
         activateClass(s, s.activeClassId || "class-1");
         return s;
@@ -191,14 +193,15 @@
   function renderTimer() {
     const running = state.phase === "counting";
     const finished = !!state.currentId && (state.phase === "await-check" || state.phase === "answer");
-    let remaining = COUNTDOWN_MS;
+    const duration = (running || finished) ? (currentRecord()?.timerDurationMs || DEFAULT_TIMER_SECONDS * 1000) : state.timerSeconds * 1000;
+    let remaining = duration;
     if (running) remaining = Math.max(0, state.timerEndsAt - Date.now());
     if (finished) remaining = 0;
     el.timerValue.textContent = String(Math.ceil(remaining / 1000));
-    el.timerFace.style.setProperty("--progress", `${((COUNTDOWN_MS - remaining) / COUNTDOWN_MS) * 100}%`);
+    el.timerFace.style.setProperty("--progress", `${Math.min(100, Math.max(0, ((duration - remaining) / duration) * 100))}%`);
     el.timerCard.classList.toggle("is-running", running);
     el.timerCard.classList.toggle("is-done", finished);
-    el.timerStatus.textContent = running ? "请在 5 秒内回答" : finished ? "时间到 · 可以查看答案" : "抽出学生后自动开始";
+    el.timerStatus.textContent = running ? `请在 ${duration / 1000} 秒内回答` : finished ? "时间到 · 可以查看答案" : `抽出学生后自动开始 · ${state.timerSeconds} 秒`;
   }
 
   function renderRecords() {
@@ -312,6 +315,7 @@
     el.studentFileLabel.textContent = state.files.students || "选择 Excel 文件";
     el.questionFileLabel.textContent = state.files.questions || "选择 DOCX 文件";
     for (const radio of document.querySelectorAll('input[name="direction"]')) radio.checked = radio.value === state.mode;
+    for (const radio of document.querySelectorAll('input[name="timer-seconds"]')) radio.checked = Number(radio.value) === state.timerSeconds;
   }
 
   function renderAll() { renderClassSelect(); renderDraw(); renderControls(); renderTimer(); renderRecords(); renderFilesAndMode(); if (el.recordOverviewDialog.open) renderOverview(); }
@@ -358,7 +362,7 @@
     stopTimerInterval();
     state.phase = "await-check";
     save(); renderAll();
-    if (announce) { playDing(); showToast("5 秒到！点击 CHECK 查看答案。"); }
+    if (announce) { playDing(); showToast(`${(currentRecord()?.timerDurationMs || DEFAULT_TIMER_SECONDS * 1000) / 1000} 秒到！点击 CHECK 查看答案。`); }
   }
 
   function rollingCandidate() {
@@ -403,12 +407,12 @@
       id: makeId("answer"), studentId: student.id, studentName: student.name, questionId: question.id,
       direction, prompt: direction === "en-zh" ? question.en : question.zh,
       answer: direction === "en-zh" ? question.zh : question.en,
-      status: "pending", revealed: false, createdAt: Date.now()
+      status: "pending", revealed: false, timerDurationMs: state.timerSeconds * 1000, createdAt: Date.now()
     };
     state.records.push(record);
     state.usedStudentIds.push(student.id);
     state.currentId = record.id;
-    state.timerEndsAt = Date.now() + COUNTDOWN_MS;
+    state.timerEndsAt = Date.now() + record.timerDurationMs;
     state.phase = "counting";
     preview = null;
     ensureAudio();
@@ -607,6 +611,13 @@
     $("cancelImport").addEventListener("click", () => { pendingImport = null; showImportPreview(); });
     $("resetRound").addEventListener("click", resetRound);
     for (const radio of document.querySelectorAll('input[name="direction"]')) radio.addEventListener("change", () => { state.mode = radio.value; save(); renderAll(); });
+    for (const radio of document.querySelectorAll('input[name="timer-seconds"]')) radio.addEventListener("change", () => {
+      const seconds = Number(radio.value);
+      if (!TIMER_CHOICES.includes(seconds)) return;
+      state.timerSeconds = seconds;
+      save(); renderAll();
+      showToast(`倒计时已设为 ${seconds} 秒，从下一次抽取开始生效。`);
+    });
   }
 
   init();
