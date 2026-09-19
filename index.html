@@ -83,7 +83,7 @@
           <div class="timer-face" id="timerFace" style="--progress: 0%">
             <div class="timer-inner"><strong id="timerValue">5</strong><span>SECONDS</span></div>
           </div>
-          <p class="timer-status" id="timerStatus">抽出学生后自动开始</p>
+          <p class="timer-status" id="timerStatus">等待题目定格 · 5 秒</p>
           <div class="timer-dots" aria-hidden="true"><i></i><i></i><i></i></div>
         </section>
 
@@ -97,7 +97,7 @@
           <div class="record-list" id="recordList" aria-live="polite"></div>
         </section>
 
-        <button class="settings-banner" id="openSettings" type="button"><span class="settings-icon">⚙</span><span><strong>导入 & 设置</strong><small>名单 · 题库 · 方向 · 倒计时</small></span><b aria-hidden="true">↗</b></button>
+        <button class="settings-banner" id="openSettings" type="button"><span class="settings-icon">⚙</span><span><strong>导入 & 设置</strong><small>名单 · 题库 · 方向 · 倒计时 · 速度</small></span><b aria-hidden="true">↗</b></button>
       </aside>
     </main>
     <footer>MAKE EVERY ANSWER COUNT <span>✳</span> 随机抽背小课堂</footer>
@@ -121,8 +121,11 @@
       <section class="settings-section"><div class="settings-section-head"><span class="settings-number">03</span><div><h3>出题方向</h3><p>互相转化会在每次抽取时随机决定方向。</p></div></div>
         <div class="mode-options"><label><input type="radio" name="direction" value="en-zh"><span>英 → 中</span></label><label><input type="radio" name="direction" value="zh-en"><span>中 → 英</span></label><label><input type="radio" name="direction" value="mixed"><span>互相转化</span></label></div>
       </section>
-      <section class="settings-section"><div class="settings-section-head"><span class="settings-number">04</span><div><h3>回答倒计时</h3><p>抽取停止后开始计时；更改时长从下一次抽取生效。</p></div></div>
+      <section class="settings-section"><div class="settings-section-head"><span class="settings-number">04</span><div><h3>回答倒计时</h3><p>题目滚动后按 STOP 定格并开始计时；更改时长从下一道题生效。</p></div></div>
         <div class="timer-options" role="group" aria-label="回答倒计时时长"><label><input type="radio" name="timer-seconds" value="3"><span>3 秒</span></label><label><input type="radio" name="timer-seconds" value="5"><span>5 秒</span></label><label><input type="radio" name="timer-seconds" value="8"><span>8 秒</span></label><label><input type="radio" name="timer-seconds" value="10"><span>10 秒</span></label></div>
+      </section>
+      <section class="settings-section"><div class="settings-section-head"><span class="settings-number">05</span><div><h3>滚动速度</h3><p>学生姓名和题目使用同一档速度，修改后立即生效。</p></div></div>
+        <div class="speed-options" role="group" aria-label="学生和题目的滚动速度"><label><input type="radio" name="roll-speed" value="slow"><span>慢速</span></label><label><input type="radio" name="roll-speed" value="normal"><span>适中</span></label><label><input type="radio" name="roll-speed" value="fast"><span>快速</span></label></div>
       </section>
       <section class="settings-section reset-section"><div><h3>当前班级开启新一轮</h3><p>只清空所选班级的抽取进度和 Record，保留 5 个班级名单与题库。</p></div><button id="resetRound" type="button">重置本轮</button></section>
       <p class="dialog-footnote">名单、题库和记录保存在当前设备的这个浏览器。更换设备或清除网站数据后，需要重新导入名单；导入新名单只重置当前班级。</p>

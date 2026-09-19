@@ -5,6 +5,7 @@
   const LEGACY_KEY = "lucky-recitation-v1";
   const DEFAULT_TIMER_SECONDS = 5;
   const TIMER_CHOICES = [3, 5, 8, 10];
+  const ROLL_SPEEDS = { slow: 220, normal: 85, fast: 42 };
   const $ = (id) => document.getElementById(id);
   const el = {
     headerProgress: $("headerProgress"), soundButton: $("soundButton"), classSelect: $("classSelect"), settingsClassSelect: $("settingsClassSelect"), classNameInput: $("classNameInput"), classRosterNote: $("classRosterNote"), activeClassCaption: $("activeClassCaption"),
@@ -19,20 +20,20 @@
 
   const newClass = (index) => ({
     id: `class-${index + 1}`, name: `班级 ${index + 1}`, students: [], studentDeck: [], questionDeck: [],
-    usedStudentIds: [], records: [], currentId: null, phase: "idle", timerEndsAt: null, questionCycle: 1, fileName: ""
+    usedStudentIds: [], records: [], currentId: null, pendingStudentId: null, phase: "idle", timerEndsAt: null, questionCycle: 1, fileName: ""
   });
 
   const newState = () => ({
     version: 2, classes: Array.from({ length: 5 }, (_, index) => newClass(index)), activeClassId: "class-1",
     students: [], questions: [], studentDeck: [], questionDeck: [], usedStudentIds: [], records: [],
-    currentId: null, mode: "mixed", timerSeconds: DEFAULT_TIMER_SECONDS, sound: true, phase: "idle", timerEndsAt: null, questionCycle: 1,
+    currentId: null, pendingStudentId: null, mode: "mixed", timerSeconds: DEFAULT_TIMER_SECONDS, rollSpeed: "normal", sound: true, phase: "idle", timerEndsAt: null, questionCycle: 1,
     files: { students: "", questions: "" }
   });
 
   function snapshotActive(s) {
     const selected = s.classes.find((item) => item.id === s.activeClassId);
     if (!selected) return;
-    for (const key of ["students", "studentDeck", "questionDeck", "usedStudentIds", "records", "currentId", "phase", "timerEndsAt", "questionCycle"]) selected[key] = s[key];
+    for (const key of ["students", "studentDeck", "questionDeck", "usedStudentIds", "records", "currentId", "pendingStudentId", "phase", "timerEndsAt", "questionCycle"]) selected[key] = s[key];
     selected.fileName = s.files.students || "";
   }
 
@@ -40,9 +41,11 @@
     const selected = s.classes.find((item) => item.id === id);
     if (!selected) return;
     s.activeClassId = id;
-    for (const key of ["students", "studentDeck", "questionDeck", "usedStudentIds", "records", "currentId", "phase", "timerEndsAt", "questionCycle"]) s[key] = selected[key];
+    for (const key of ["students", "studentDeck", "questionDeck", "usedStudentIds", "records", "currentId", "pendingStudentId", "phase", "timerEndsAt", "questionCycle"]) s[key] = selected[key];
     s.files.students = selected.fileName || "";
-    if (s.phase === "rolling") s.phase = "idle";
+    if (["rolling", "student-rolling"].includes(s.phase)) { s.phase = "idle"; s.pendingStudentId = null; }
+    if (s.phase === "question-rolling") s.phase = "student-ready";
+    if (s.phase === "student-ready" && !s.students.some((student) => student.id === s.pendingStudentId)) { s.phase = "idle"; s.pendingStudentId = null; }
     if (s.phase === "counting" && (!s.currentId || !s.timerEndsAt || Date.now() >= s.timerEndsAt)) s.phase = s.currentId ? "await-check" : "idle";
     if (!s.currentId && ["await-check", "answer"].includes(s.phase)) s.phase = "idle";
   }
@@ -61,6 +64,7 @@
         });
         if (!["en-zh", "zh-en", "mixed"].includes(s.mode)) s.mode = "mixed";
         if (!TIMER_CHOICES.includes(s.timerSeconds)) s.timerSeconds = DEFAULT_TIMER_SECONDS;
+        if (!Object.prototype.hasOwnProperty.call(ROLL_SPEEDS, s.rollSpeed)) s.rollSpeed = "normal";
         if (!s.classes.some((item) => item.id === s.activeClassId)) s.activeClassId = "class-1";
         activateClass(s, s.activeClassId || "class-1");
         return s;
@@ -105,7 +109,6 @@
     return output;
   }
 
-  function choose(values) { return values[Math.floor(Math.random() * values.length)]; }
   function makeId(prefix) { return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`; }
   function currentRecord() { return state.records.find((record) => record.id === state.currentId) || null; }
   function directionForMode() { return state.mode === "mixed" ? (Math.random() < .5 ? "en-zh" : "zh-en") : state.mode; }
@@ -145,46 +148,78 @@
   }
 
   function renderDraw() {
-    const record = state.phase === "rolling" ? preview : currentRecord();
-    el.questionCard.classList.toggle("is-rolling", state.phase === "rolling");
-    el.studentCard.classList.toggle("is-rolling", state.phase === "rolling");
+    const record = currentRecord();
+    const studentRolling = state.phase === "student-rolling";
+    const questionRolling = state.phase === "question-rolling";
+    const pendingStudent = ["student-ready", "question-rolling"].includes(state.phase) ? studentById(state.pendingStudentId) : null;
+    el.questionCard.classList.toggle("is-rolling", questionRolling);
+    el.studentCard.classList.toggle("is-rolling", studentRolling);
     el.questionCount.textContent = `题库 ${state.questions.length} 题`;
     el.studentCount.textContent = `本轮 ${state.usedStudentIds.length} / ${state.students.length}`;
     el.headerProgress.textContent = `本轮 ${state.usedStudentIds.length} / ${state.students.length}`;
     el.activeClassCaption.textContent = `正在抽背：${activeClass().name} · ${state.students.length ? `${state.students.length} 位同学` : "请先导入名单"}`;
     el.remainingText.textContent = `还有 ${remainingCount()} 位同学待抽`;
-    if (record) {
-      el.questionHint.textContent = state.phase === "rolling" ? "题目滚动中 · 点击 STOP 定格" : `请回答 · ${directionName(record.direction)}`;
+    if (studentRolling && preview) {
+      el.questionHint.textContent = "先确定回答的学生";
+      el.questionValue.textContent = "题目暂未显示";
+      el.studentHint.textContent = "学生姓名滚动中 · 点击 STOP 定格";
+      el.studentValue.textContent = preview.studentName;
+      el.directionTag.textContent = state.mode === "mixed" ? "互相转化 · 随机方向" : directionName(state.mode);
+      el.answerLine.hidden = true;
+      el.answerValue.textContent = "";
+    } else if (questionRolling && pendingStudent && preview) {
+      el.questionHint.textContent = "题目滚动中 · 点击 STOP 定格";
+      el.questionValue.textContent = preview.prompt;
+      el.studentHint.textContent = "这一次，轮到你啦！";
+      el.studentValue.textContent = pendingStudent.name;
+      el.directionTag.textContent = directionName(preview.direction);
+      el.answerLine.hidden = true;
+      el.answerValue.textContent = "";
+    } else if (state.phase === "student-ready" && pendingStudent) {
+      el.questionHint.textContent = "学生已经抽出 · 点击开始抽题";
+      el.questionValue.textContent = "题目暂未显示";
+      el.studentHint.textContent = "这一次，轮到你啦！";
+      el.studentValue.textContent = pendingStudent.name;
+      el.directionTag.textContent = state.mode === "mixed" ? "互相转化 · 随机方向" : directionName(state.mode);
+      el.answerLine.hidden = true;
+      el.answerValue.textContent = "";
+    } else if (record) {
+      el.questionHint.textContent = `请回答 · ${directionName(record.direction)}`;
       el.questionValue.textContent = record.prompt;
-      el.studentHint.textContent = state.phase === "rolling" ? "正在寻找幸运同学…" : "这一次，轮到你啦！";
+      el.studentHint.textContent = "这一次，轮到你啦！";
       el.studentValue.textContent = record.studentName;
       el.directionTag.textContent = directionName(record.direction);
-      el.answerLine.hidden = !record.revealed || state.phase === "rolling";
+      el.answerLine.hidden = !record.revealed;
       el.answerValue.textContent = record.revealed ? record.answer : "";
     } else {
       el.questionHint.textContent = state.questions.length ? "题库已经准备就绪" : "先导入 Word 题库";
-      el.questionValue.textContent = state.questions.length ? "点击开始抽取" : "准备好开始了吗？";
+      el.questionValue.textContent = state.questions.length ? "点击抽取学生" : "准备好开始了吗？";
       el.studentHint.textContent = state.students.length ? "名单已经准备就绪" : "先导入 Excel 名单";
       el.studentValue.textContent = state.students.length ? "幸运同学是谁？" : "等待名单导入";
       el.directionTag.textContent = state.mode === "mixed" ? "互相转化 · 随机方向" : directionName(state.mode);
       el.answerLine.hidden = true;
     }
     if (!state.students.length || !state.questions.length) el.stageNote.textContent = "导入名单与题库后，就可以开始抽背啦。";
-    else if (remainingCount() === 0) el.stageNote.textContent = "本轮同学已全部抽完，请在设置中手动开启新一轮。";
-    else if (state.phase === "rolling") el.stageNote.textContent = "题目和学生正在同时滚动，点击 STOP 一起揭晓。";
+    else if (studentRolling) el.stageNote.textContent = "学生姓名正在滚动，点击 STOP 定格学生。";
+    else if (state.phase === "student-ready") el.stageNote.textContent = "学生已确定；点击“开始抽题”，再用 STOP 定格题目。";
+    else if (questionRolling) el.stageNote.textContent = "题目正在滚动；点击 STOP 后，题目定格并立即开始倒计时。";
     else if (state.phase === "counting") el.stageNote.textContent = "回答倒计时正在进行，时间到后可查看答案。";
     else if (state.phase === "await-check") el.stageNote.textContent = "时间到！点击 CHECK 查看答案，也可以稍后在 Record 中判定。";
     else if (state.phase === "answer") el.stageNote.textContent = "请在 Record 中标记答对或答错，或开始下一轮。";
-    else el.stageNote.textContent = "点击开始，让幸运同学和题目一起出现。";
+    else if (remainingCount() === 0) el.stageNote.textContent = "本轮同学已全部抽完，请在设置中手动开启新一轮。";
+    else el.stageNote.textContent = "点击“开始抽取”滚动学生姓名，再用 STOP 定格。";
   }
 
   function renderControls() {
-    const ready = !!state.students.length && !!state.questions.length && remainingCount() > 0;
-    el.startButton.disabled = !ready || state.phase === "rolling" || state.phase === "counting";
-    el.startButtonLabel.textContent = state.usedStudentIds.length ? "下一轮抽取" : "开始抽取";
-    el.stopButton.disabled = state.phase !== "rolling";
+    const filesReady = !!state.students.length && !!state.questions.length;
+    const canDrawStudent = filesReady && remainingCount() > 0;
+    const canShowQuestion = filesReady && state.phase === "student-ready" && !!studentById(state.pendingStudentId);
+    const rolling = ["student-rolling", "question-rolling"].includes(state.phase);
+    el.startButton.disabled = rolling || state.phase === "counting" || (!canDrawStudent && !canShowQuestion);
+    el.startButtonLabel.textContent = state.phase === "student-ready" ? "开始抽题" : state.usedStudentIds.length ? "抽取下一位" : "开始抽取";
+    el.stopButton.disabled = !rolling;
     const current = currentRecord();
-    el.checkButton.disabled = !current || state.phase === "counting" || state.phase === "rolling" || current.revealed;
+    el.checkButton.disabled = !current || state.phase === "counting" || rolling || current.revealed;
     el.soundButton.textContent = state.sound ? "♪" : "♩";
     el.soundButton.setAttribute("aria-label", state.sound ? "关闭提示音" : "开启提示音");
     el.soundButton.title = state.sound ? "关闭提示音" : "开启提示音";
@@ -201,7 +236,7 @@
     el.timerFace.style.setProperty("--progress", `${Math.min(100, Math.max(0, ((duration - remaining) / duration) * 100))}%`);
     el.timerCard.classList.toggle("is-running", running);
     el.timerCard.classList.toggle("is-done", finished);
-    el.timerStatus.textContent = running ? `请在 ${duration / 1000} 秒内回答` : finished ? "时间到 · 可以查看答案" : `抽出学生后自动开始 · ${state.timerSeconds} 秒`;
+    el.timerStatus.textContent = running ? `请在 ${duration / 1000} 秒内回答` : finished ? "时间到 · 可以查看答案" : state.phase === "question-rolling" ? `题目定格后开始 · ${state.timerSeconds} 秒` : `等待题目定格 · ${state.timerSeconds} 秒`;
   }
 
   function renderRecords() {
@@ -316,6 +351,7 @@
     el.questionFileLabel.textContent = state.files.questions || "选择 DOCX 文件";
     for (const radio of document.querySelectorAll('input[name="direction"]')) radio.checked = radio.value === state.mode;
     for (const radio of document.querySelectorAll('input[name="timer-seconds"]')) radio.checked = Number(radio.value) === state.timerSeconds;
+    for (const radio of document.querySelectorAll('input[name="roll-speed"]')) radio.checked = radio.value === state.rollSpeed;
   }
 
   function renderAll() { renderClassSelect(); renderDraw(); renderControls(); renderTimer(); renderRecords(); renderFilesAndMode(); if (el.recordOverviewDialog.open) renderOverview(); }
@@ -365,44 +401,86 @@
     if (announce) { playDing(); showToast(`${(currentRecord()?.timerDurationMs || DEFAULT_TIMER_SECONDS * 1000) / 1000} 秒到！点击 CHECK 查看答案。`); }
   }
 
-  function rollingCandidate() {
-    const studentIds = state.studentDeck.length ? state.studentDeck : state.students.filter((student) => !state.usedStudentIds.includes(student.id)).map((student) => student.id);
-    const questionIds = state.questionDeck.length ? state.questionDeck : state.questions.map((question) => question.id);
-    const student = studentById(choose(studentIds));
-    const question = questionById(choose(questionIds));
-    if (!student || !question) return null;
-    const direction = directionForMode();
-    return { studentName: student.name, prompt: direction === "en-zh" ? question.en : question.zh, direction, revealed: false };
+  function choose(values) { return values[Math.floor(Math.random() * values.length)]; }
+  function rollIntervalMs() { return ROLL_SPEEDS[state.rollSpeed] || ROLL_SPEEDS.normal; }
+  function clearRollInterval() { if (rollInterval) clearInterval(rollInterval); rollInterval = null; }
+
+  function restartRollInterval() {
+    clearRollInterval();
+    if (state.phase === "student-rolling") rollInterval = setInterval(() => { preview = studentCandidate(); renderDraw(); }, rollIntervalMs());
+    if (state.phase === "question-rolling") rollInterval = setInterval(() => { preview = questionCandidate(); renderDraw(); }, rollIntervalMs());
   }
 
-  function startRolling() {
+  function studentCandidate() {
+    const id = choose(state.studentDeck.filter((studentId) => !state.usedStudentIds.includes(studentId)));
+    const student = studentById(id);
+    return student ? { studentId: student.id, studentName: student.name } : null;
+  }
+
+  function questionCandidate() {
+    const question = questionById(choose(state.questionDeck));
+    if (!question) return null;
+    const direction = directionForMode();
+    return { questionId: question.id, direction, prompt: direction === "en-zh" ? question.en : question.zh };
+  }
+
+  function startStudentRolling() {
     if (!state.students.length || !state.questions.length) { el.settingsDialog.showModal(); showToast("请先导入学生名单和英汉题库。"); return; }
     if (remainingCount() === 0) { showToast("本轮所有同学都抽过了，请手动重置本轮。"); return; }
-    if (state.phase === "rolling" || state.phase === "counting") return;
-    state.currentId = null;
-    state.timerEndsAt = null;
-    state.phase = "rolling";
-    preview = rollingCandidate();
-    save(); renderAll();
-    rollInterval = setInterval(() => { preview = rollingCandidate(); renderDraw(); }, 85);
-  }
-
-  function stopRolling() {
-    if (state.phase !== "rolling") return;
-    clearInterval(rollInterval); rollInterval = null;
+    if (["counting", "student-ready", "student-rolling", "question-rolling"].includes(state.phase)) return;
     if (!state.studentDeck.length) {
       const remaining = state.students.filter((student) => !state.usedStudentIds.includes(student.id)).map((student) => student.id);
       state.studentDeck = shuffled(remaining);
     }
+    preview = studentCandidate();
+    if (!preview) { showToast("抽取学生失败，请重新导入名单后再试。"); return; }
+    state.currentId = null;
+    state.timerEndsAt = null;
+    state.pendingStudentId = null;
+    state.phase = "student-rolling";
+    save(); renderAll();
+    restartRollInterval();
+  }
+
+  function stopStudentRolling() {
+    if (state.phase !== "student-rolling") return;
+    clearRollInterval();
+    const student = studentById(preview?.studentId);
+    if (!student || state.usedStudentIds.includes(student.id)) { state.phase = "idle"; preview = null; save(); renderAll(); showToast("抽取学生失败，请重新试一次。"); return; }
+    const deckIndex = state.studentDeck.indexOf(student.id);
+    if (deckIndex >= 0) state.studentDeck.splice(deckIndex, 1);
+    state.pendingStudentId = student.id;
+    state.usedStudentIds.push(student.id);
+    state.phase = "student-ready";
+    preview = null;
+    save(); renderAll();
+  }
+
+  function startQuestionRolling() {
+    if (state.phase !== "student-ready") return;
+    const student = studentById(state.pendingStudentId);
+    if (!student) { state.pendingStudentId = null; state.phase = "idle"; save(); renderAll(); showToast("未找到已抽学生，请重新抽取。"); return; }
     if (!state.questionDeck.length) {
       state.questionDeck = shuffled(state.questions.map((question) => question.id));
       state.questionCycle += 1;
       showToast(`题库已抽完，正在使用第 ${state.questionCycle} 轮题目。`);
     }
-    const student = studentById(state.studentDeck.pop());
-    const question = questionById(state.questionDeck.pop());
-    if (!student || !question) { state.phase = "idle"; preview = null; save(); renderAll(); showToast("抽取失败，请重新导入文件后再试。"); return; }
-    const direction = directionForMode();
+    preview = questionCandidate();
+    if (!preview) { save(); renderAll(); showToast("抽取题目失败，请重新导入题库后再试。"); return; }
+    state.phase = "question-rolling";
+    save(); renderAll();
+    restartRollInterval();
+  }
+
+  function stopQuestionRolling() {
+    if (state.phase !== "question-rolling") return;
+    clearRollInterval();
+    const student = studentById(state.pendingStudentId);
+    const question = questionById(preview?.questionId);
+    if (!student || !question || !preview) { state.phase = "student-ready"; preview = null; save(); renderAll(); showToast("抽取题目失败，请重新试一次。"); return; }
+    const deckIndex = state.questionDeck.indexOf(question.id);
+    if (deckIndex >= 0) state.questionDeck.splice(deckIndex, 1);
+    const direction = preview.direction;
     const record = {
       id: makeId("answer"), studentId: student.id, studentName: student.name, questionId: question.id,
       direction, prompt: direction === "en-zh" ? question.en : question.zh,
@@ -410,13 +488,23 @@
       status: "pending", revealed: false, timerDurationMs: state.timerSeconds * 1000, createdAt: Date.now()
     };
     state.records.push(record);
-    state.usedStudentIds.push(student.id);
     state.currentId = record.id;
+    state.pendingStudentId = null;
     state.timerEndsAt = Date.now() + record.timerDurationMs;
     state.phase = "counting";
-    preview = null;
     ensureAudio();
     save(); renderAll(); startTimerInterval();
+    preview = null;
+  }
+
+  function handleDrawAction() {
+    if (state.phase === "student-ready") startQuestionRolling();
+    else startStudentRolling();
+  }
+
+  function stopRolling() {
+    if (state.phase === "student-rolling") stopStudentRolling();
+    else if (state.phase === "question-rolling") stopQuestionRolling();
   }
 
   function revealAnswer(id) {
@@ -436,28 +524,30 @@
 
   function resetRoundData() {
     stopTimerInterval();
-    clearInterval(rollInterval); rollInterval = null;
+    clearRollInterval();
+    preview = null;
     state.studentDeck = shuffled(state.students.map((student) => student.id));
     state.questionDeck = shuffled(state.questions.map((question) => question.id));
     state.usedStudentIds = [];
     state.records = [];
     state.currentId = null;
+    state.pendingStudentId = null;
     state.timerEndsAt = null;
     state.phase = "idle";
     state.questionCycle = 1;
-    preview = null;
   }
 
   function switchClass(id) {
     if (id === state.activeClassId || !state.classes.some((item) => item.id === id)) return;
     stopTimerInterval();
-    clearInterval(rollInterval); rollInterval = null;
-    if (state.phase === "rolling") { state.phase = "idle"; state.currentId = null; }
+    clearRollInterval();
+    if (state.phase === "student-rolling") state.phase = "idle";
+    if (state.phase === "question-rolling") state.phase = "student-ready";
+    preview = null;
     snapshotActive(state);
     activateClass(state, id);
     if (state.students.length && !state.studentDeck.length && !state.usedStudentIds.length) state.studentDeck = shuffled(state.students.map((student) => student.id));
     if (state.questions.length && !state.questionDeck.length && !state.records.length) state.questionDeck = shuffled(state.questions.map((question) => question.id));
-    preview = null;
     pendingImport = null;
     showImportPreview();
     save(); renderAll();
@@ -553,12 +643,15 @@
     const { kind, entries, fileName, classId } = pendingImport;
     if (kind === "students") {
       if (classId !== state.activeClassId) { showToast("班级已切换，请重新选择名单文件。"); return; }
-      if (state.records.length && !window.confirm(`替换${activeClass().name}名单会清空该班本轮进度和 Record。确定继续吗？`)) return;
+      if (state.usedStudentIds.length && !window.confirm(`替换${activeClass().name}名单会清空该班本轮进度和 Record。确定继续吗？`)) return;
       state.students = entries;
       state.files.students = fileName;
       resetRoundData();
     } else {
-      if (state.phase === "rolling") { clearInterval(rollInterval); rollInterval = null; state.phase = "idle"; preview = null; }
+      clearRollInterval();
+      if (state.phase === "student-rolling") state.phase = "idle";
+      if (state.phase === "question-rolling") state.phase = "student-ready";
+      preview = null;
       snapshotActive(state);
       state.questions = entries;
       state.files.questions = fileName;
@@ -577,7 +670,7 @@
 
   function resetRound() {
     if (!state.students.length && !state.questions.length) { showToast("请先导入名单与题库。"); return; }
-    if (state.records.length && !window.confirm(`确定为${activeClass().name}开启新一轮吗？该班本轮进度和 Record 将清空。`)) return;
+    if (state.usedStudentIds.length && !window.confirm(`确定为${activeClass().name}开启新一轮吗？该班本轮进度和 Record 将清空。`)) return;
     resetRoundData(); save(); renderAll();
     el.settingsDialog.close();
     showToast(`${activeClass().name}的新一轮已准备好，所有同学均可再次抽取。`);
@@ -589,7 +682,7 @@
     if (state.phase === "counting" && Date.now() >= state.timerEndsAt) state.phase = "await-check";
     save(); renderAll();
     if (state.phase === "counting") startTimerInterval();
-    el.startButton.addEventListener("click", startRolling);
+    el.startButton.addEventListener("click", handleDrawAction);
     el.stopButton.addEventListener("click", stopRolling);
     el.checkButton.addEventListener("click", () => { if (state.currentId) revealAnswer(state.currentId); });
     el.soundButton.addEventListener("click", () => { state.sound = !state.sound; if (state.sound) ensureAudio(); save(); renderControls(); });
@@ -617,6 +710,12 @@
       state.timerSeconds = seconds;
       save(); renderAll();
       showToast(`倒计时已设为 ${seconds} 秒，从下一次抽取开始生效。`);
+    });
+    for (const radio of document.querySelectorAll('input[name="roll-speed"]')) radio.addEventListener("change", () => {
+      if (!Object.prototype.hasOwnProperty.call(ROLL_SPEEDS, radio.value)) return;
+      state.rollSpeed = radio.value;
+      save(); renderAll(); restartRollInterval();
+      showToast(`滚动速度已设为${radio.value === "slow" ? "慢速" : radio.value === "fast" ? "快速" : "适中"}。`);
     });
   }
 
