@@ -45,6 +45,7 @@
           <div class="draw-content">
             <p class="draw-hint" id="questionHint">先导入 Word 题库</p>
             <div class="draw-value" id="questionValue">准备好开始了吗？</div>
+            <button class="audio-question-button" id="audioQuestionButton" type="button" hidden aria-label="播放题目语音" title="播放题目语音">🔊<span>点击播放题目</span></button>
             <p class="answer-line" id="answerLine" hidden><span>参考答案</span><strong id="answerValue"></strong></p>
           </div>
           <div class="card-bottomline">
@@ -120,6 +121,9 @@
       <div class="import-preview" id="importPreview" hidden><div class="preview-top"><strong id="previewTitle">导入预览</strong><button id="cancelImport" type="button" aria-label="取消导入">×</button></div><p id="previewSummary"></p><ul id="previewExamples"></ul><p class="preview-warning" id="previewWarning" hidden></p><button class="apply-button" id="applyImport" type="button">确认导入</button></div>
       <section class="settings-section"><div class="settings-section-head"><span class="settings-number">03</span><div><h3>出题方向</h3><p>互相转化会在每次抽取时随机决定方向。</p></div></div>
         <div class="mode-options"><label><input type="radio" name="direction" value="en-zh"><span>英 → 中</span></label><label><input type="radio" name="direction" value="zh-en"><span>中 → 英</span></label><label><input type="radio" name="direction" value="mixed"><span>互相转化</span></label></div>
+      </section>
+      <section class="settings-section"><div class="settings-section-head"><span class="settings-number">04</span><div><h3>出题方式</h3><p>听音题会隐藏题库文字，定格后自动朗读，也可点击喇叭重复播放。</p></div></div>
+        <div class="mode-options question-type-options"><label><input type="radio" name="question-type" value="text"><span>显示文字</span></label><label><input type="radio" name="question-type" value="audio"><span>听音复述</span></label></div>
       </section>
       <section class="settings-section"><div class="settings-section-head"><span class="settings-number">04</span><div><h3>回答倒计时</h3><p>题目滚动后按 STOP 定格并开始计时；更改时长从下一道题生效。</p></div></div>
         <div class="timer-options" role="group" aria-label="回答倒计时时长"><label><input type="radio" name="timer-seconds" value="3"><span>3 秒</span></label><label><input type="radio" name="timer-seconds" value="5"><span>5 秒</span></label><label><input type="radio" name="timer-seconds" value="8"><span>8 秒</span></label><label><input type="radio" name="timer-seconds" value="10"><span>10 秒</span></label></div>

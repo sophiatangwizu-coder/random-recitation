@@ -9,7 +9,7 @@
   const $ = (id) => document.getElementById(id);
   const el = {
     headerProgress: $("headerProgress"), soundButton: $("soundButton"), classSelect: $("classSelect"), settingsClassSelect: $("settingsClassSelect"), classNameInput: $("classNameInput"), classRosterNote: $("classRosterNote"), activeClassCaption: $("activeClassCaption"),
-    questionCard: $("questionCard"), questionCount: $("questionCount"), questionHint: $("questionHint"), questionValue: $("questionValue"), answerLine: $("answerLine"), answerValue: $("answerValue"), directionTag: $("directionTag"),
+    questionCard: $("questionCard"), questionCount: $("questionCount"), questionHint: $("questionHint"), questionValue: $("questionValue"), audioQuestionButton: $("audioQuestionButton"), answerLine: $("answerLine"), answerValue: $("answerValue"), directionTag: $("directionTag"),
     studentCard: $("studentCard"), studentCount: $("studentCount"), studentHint: $("studentHint"), studentValue: $("studentValue"), remainingText: $("remainingText"),
     startButton: $("startButton"), startButtonLabel: $("startButtonLabel"), stopButton: $("stopButton"), checkButton: $("checkButton"), stageNote: $("stageNote"),
     timerFace: $("timerFace"), timerValue: $("timerValue"), timerStatus: $("timerStatus"), timerCard: document.querySelector(".timer-card"),
@@ -26,7 +26,7 @@
   const newState = () => ({
     version: 2, classes: Array.from({ length: 5 }, (_, index) => newClass(index)), activeClassId: "class-1",
     students: [], questions: [], studentDeck: [], questionDeck: [], usedStudentIds: [], records: [],
-    currentId: null, pendingStudentId: null, mode: "mixed", timerSeconds: DEFAULT_TIMER_SECONDS, rollSpeed: "normal", sound: true, phase: "idle", timerEndsAt: null, questionCycle: 1,
+    currentId: null, pendingStudentId: null, mode: "mixed", questionType: "text", timerSeconds: DEFAULT_TIMER_SECONDS, rollSpeed: "normal", sound: true, phase: "idle", timerEndsAt: null, questionCycle: 1,
     files: { students: "", questions: "" }
   });
 
@@ -63,6 +63,7 @@
           return item;
         });
         if (!["en-zh", "zh-en", "mixed"].includes(s.mode)) s.mode = "mixed";
+        if (!["text", "audio"].includes(s.questionType)) s.questionType = "text";
         if (!TIMER_CHOICES.includes(s.timerSeconds)) s.timerSeconds = DEFAULT_TIMER_SECONDS;
         if (!Object.prototype.hasOwnProperty.call(ROLL_SPEEDS, s.rollSpeed)) s.rollSpeed = "normal";
         if (!s.classes.some((item) => item.id === s.activeClassId)) s.activeClassId = "class-1";
@@ -153,6 +154,8 @@
     const questionRolling = state.phase === "question-rolling";
     const pendingStudent = ["student-ready", "question-rolling"].includes(state.phase) ? studentById(state.pendingStudentId) : null;
     el.questionCard.classList.toggle("is-rolling", questionRolling);
+    const audioQuestion = state.questionType === "audio";
+    el.questionCard.classList.toggle("is-audio-question", audioQuestion);
     el.studentCard.classList.toggle("is-rolling", studentRolling);
     el.questionCount.textContent = `题库 ${state.questions.length} 题`;
     el.studentCount.textContent = `本轮 ${state.usedStudentIds.length} / ${state.students.length}`;
@@ -169,7 +172,7 @@
       el.answerValue.textContent = "";
     } else if (questionRolling && pendingStudent && preview) {
       el.questionHint.textContent = "题目滚动中 · 点击 STOP 定格";
-      el.questionValue.textContent = preview.prompt;
+      el.questionValue.textContent = audioQuestion ? "听音题 · 点击喇叭" : preview.prompt;
       el.studentHint.textContent = "这一次，轮到你啦！";
       el.studentValue.textContent = pendingStudent.name;
       el.directionTag.textContent = directionName(preview.direction);
@@ -185,7 +188,7 @@
       el.answerValue.textContent = "";
     } else if (record) {
       el.questionHint.textContent = `请回答 · ${directionName(record.direction)}`;
-      el.questionValue.textContent = record.prompt;
+      el.questionValue.textContent = audioQuestion ? "听音题 · 点击喇叭重播" : record.prompt;
       el.studentHint.textContent = "这一次，轮到你啦！";
       el.studentValue.textContent = record.studentName;
       el.directionTag.textContent = directionName(record.direction);
@@ -199,6 +202,8 @@
       el.directionTag.textContent = state.mode === "mixed" ? "互相转化 · 随机方向" : directionName(state.mode);
       el.answerLine.hidden = true;
     }
+    const playable = audioQuestion && (record || (questionRolling && preview));
+    el.audioQuestionButton.hidden = !playable;
     if (!state.students.length || !state.questions.length) el.stageNote.textContent = "导入名单与题库后，就可以开始抽背啦。";
     else if (studentRolling) el.stageNote.textContent = "学生姓名正在滚动，点击 STOP 定格学生。";
     else if (state.phase === "student-ready") el.stageNote.textContent = "学生已确定；点击“开始抽题”，再用 STOP 定格题目。";
@@ -350,6 +355,7 @@
     el.studentFileLabel.textContent = state.files.students || "选择 Excel 文件";
     el.questionFileLabel.textContent = state.files.questions || "选择 DOCX 文件";
     for (const radio of document.querySelectorAll('input[name="direction"]')) radio.checked = radio.value === state.mode;
+    for (const radio of document.querySelectorAll('input[name="question-type"]')) radio.checked = radio.value === state.questionType;
     for (const radio of document.querySelectorAll('input[name="timer-seconds"]')) radio.checked = Number(radio.value) === state.timerSeconds;
     for (const radio of document.querySelectorAll('input[name="roll-speed"]')) radio.checked = radio.value === state.rollSpeed;
   }
@@ -494,12 +500,22 @@
     state.phase = "counting";
     ensureAudio();
     save(); renderAll(); startTimerInterval();
+    if (state.questionType === "audio") speakQuestion(record.prompt);
     preview = null;
   }
 
   function handleDrawAction() {
     if (state.phase === "student-ready") startQuestionRolling();
     else startStudentRolling();
+  }
+
+  function speakQuestion(text) {
+    if (!text || !window.speechSynthesis) { showToast("当前浏览器不支持语音播放，请使用最新版 Chrome、Edge 或 Safari。"); return; }
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = /[\u4e00-\u9fff]/.test(text) ? "zh-CN" : "en-US";
+    utterance.rate = 0.82;
+    window.speechSynthesis.speak(utterance);
   }
 
   function stopRolling() {
@@ -686,6 +702,7 @@
     el.stopButton.addEventListener("click", stopRolling);
     el.checkButton.addEventListener("click", () => { if (state.currentId) revealAnswer(state.currentId); });
     el.soundButton.addEventListener("click", () => { state.sound = !state.sound; if (state.sound) ensureAudio(); save(); renderControls(); });
+    el.audioQuestionButton.addEventListener("click", () => { const record = currentRecord(); const text = record?.prompt || preview?.prompt; if (text) speakQuestion(text); });
     el.classSelect.addEventListener("change", () => switchClass(el.classSelect.value));
     el.settingsClassSelect.addEventListener("change", () => switchClass(el.settingsClassSelect.value));
     $("saveClassName").addEventListener("click", saveClassName);
@@ -704,6 +721,7 @@
     $("cancelImport").addEventListener("click", () => { pendingImport = null; showImportPreview(); });
     $("resetRound").addEventListener("click", resetRound);
     for (const radio of document.querySelectorAll('input[name="direction"]')) radio.addEventListener("change", () => { state.mode = radio.value; save(); renderAll(); });
+    for (const radio of document.querySelectorAll('input[name="question-type"]')) radio.addEventListener("change", () => { state.questionType = radio.value; save(); renderAll(); showToast(radio.value === "audio" ? "已切换为听音复述题。" : "已切换为显示文字题。"); });
     for (const radio of document.querySelectorAll('input[name="timer-seconds"]')) radio.addEventListener("change", () => {
       const seconds = Number(radio.value);
       if (!TIMER_CHOICES.includes(seconds)) return;
