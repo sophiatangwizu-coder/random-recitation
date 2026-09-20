@@ -50,3 +50,21 @@ footer{text-align:center;margin:30px 0 0;font-size:10px;font-weight:900;letter-s
 @media(max-width:520px){.app-shell{padding:14px 12px}.brand-mark{width:44px;height:44px;font-size:25px}.brand-copy h1{font-size:20px}.brand-copy h1 span{display:block;font-size:13px;margin:3px 0 0}.site-header{margin-bottom:20px}.header-actions{gap:7px;flex-wrap:wrap}.class-picker{width:100%;justify-content:space-between}.class-picker select{flex:1;max-width:none;text-align:right}.header-pill{margin-right:auto}.settings-top-button{padding:0 10px}.stage-intro{margin-bottom:13px}.stage-intro h2{font-size:19px}.stage-intro p:not(.section-kicker){font-size:11px}.stage-sparkle{font-size:37px;margin-right:4px}.draw-card{padding:14px 15px 12px;border-radius:19px;min-height:225px}.student-card{min-height:180px}.card-label{font-size:10px}.card-counter{font-size:10px;padding:5px 8px}.draw-content{min-height:145px}.student-content{min-height:105px}.action-row{gap:7px;margin:17px 0 19px}.action-button{height:48px;font-size:11px;gap:4px;letter-spacing:0}.action-icon{font-size:15px}.side-panel{grid-template-columns:1fr}.timer-card{display:grid;grid-template-columns:1fr 100px;align-items:center;gap:3px;padding:12px 15px;text-align:left}.timer-card .panel-heading{grid-column:1}.timer-face{grid-column:2;grid-row:1 / span 3;width:91px;height:91px;margin:0}.timer-inner{width:77px;height:77px}.timer-inner strong{font-size:44px}.timer-inner span{font-size:7px;margin-top:5px}.timer-status{grid-column:1;font-size:11px}.timer-dots{grid-column:1;justify-content:start;margin:5px 0 0}.record-card{grid-row:auto;min-height:230px}.record-list{max-height:330px;min-height:125px}.settings-banner{grid-column:auto}.dialog-body{padding:19px 17px 22px}.dialog-head{padding:22px 18px 17px}}
 @media(max-width:520px){.overview-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}.overview-student{min-height:72px;padding:7px 6px}.overview-student strong{font-size:12px}.wrong-copy-panel{align-items:stretch;flex-direction:column;gap:9px}.wrong-copy-panel button{width:100%}.overview-head h2{font-size:21px}}
 .audio-question-button{display:flex;align-items:center;justify-content:center;gap:10px;margin:14px auto 4px;padding:12px 20px;border:1px solid #d9c9f3;border-radius:999px;background:#f7f1ff;color:#7955bd;font:800 14px inherit;cursor:pointer;box-shadow:0 5px 14px #8d6bc51f}.audio-question-button:hover{background:#eee4ff;transform:translateY(-1px)}.audio-question-button:focus-visible{outline:3px solid #6056c9;outline-offset:2px}.audio-question-button:first-letter{font-size:25px}.question-card.is-audio-question .draw-value{color:#7955bd;letter-spacing:.02em}
+
+[hidden]{display:none!important}
+/* Keep the action row stationary even when consecutive prompts vary in length. */
+.question-card{height:clamp(300px,40vh,400px);min-height:0}
+.question-card .card-topline,.question-card .card-bottomline{flex-shrink:0}
+.question-card .draw-content{min-height:0;overflow:auto;justify-content:flex-start;overscroll-behavior:contain;scrollbar-gutter:stable}
+.question-card .draw-content>*{flex-shrink:0}
+.question-card .draw-value{margin-block:auto}
+/* On two-column screens, let the actual list fill the stretched record card. */
+.record-item{flex-shrink:0}
+@media(min-width:761px){
+  .record-card{min-height:360px}
+  .record-list{flex:1 1 0;height:0;max-height:none;min-height:165px}
+  .record-heading,.record-overview-trigger,.record-explainer{flex-shrink:0}
+}
+.round-summary{margin-top:20px;padding:20px;border:1px solid #e4d7ee;border-radius:18px;background:#fffafc;text-align:left}
+.round-summary h3{margin:0 0 10px;color:#7955bd;font-size:17px}.round-summary p{line-height:1.7;font-size:14px;margin:8px 0 14px}.round-summary .apply-button{width:auto;padding:12px 18px}
+#reviewPanel{margin-top:22px}.review-explainer{color:#84728e}.review-item{padding:15px;margin-top:10px;border:1px solid #eee0ea;border-radius:12px;background:white;overflow-wrap:anywhere}.review-item strong{font-size:20px}.review-item p{margin:6px 0}.review-item>span{font-size:13px;color:#ba5076}

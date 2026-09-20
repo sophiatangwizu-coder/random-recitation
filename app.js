@@ -20,12 +20,12 @@
 
   const newClass = (index) => ({
     id: `class-${index + 1}`, name: `班级 ${index + 1}`, students: [], studentDeck: [], questionDeck: [],
-    usedStudentIds: [], records: [], currentId: null, pendingStudentId: null, phase: "idle", timerEndsAt: null, questionCycle: 1, fileName: ""
+    usedStudentIds: [], retryIds: null, retryUsedIds: [], records: [], currentId: null, pendingStudentId: null, phase: "idle", timerEndsAt: null, questionCycle: 1, fileName: ""
   });
 
   const newState = () => ({
     version: 2, classes: Array.from({ length: 5 }, (_, index) => newClass(index)), activeClassId: "class-1",
-    students: [], questions: [], studentDeck: [], questionDeck: [], usedStudentIds: [], records: [],
+    students: [], questions: [], studentDeck: [], questionDeck: [], usedStudentIds: [], retryIds: null, retryUsedIds: [], records: [],
     currentId: null, pendingStudentId: null, mode: "mixed", questionType: "text", timerSeconds: DEFAULT_TIMER_SECONDS, rollSpeed: "normal", sound: true, phase: "idle", timerEndsAt: null, questionCycle: 1,
     files: { students: "", questions: "" }
   });
@@ -33,7 +33,7 @@
   function snapshotActive(s) {
     const selected = s.classes.find((item) => item.id === s.activeClassId);
     if (!selected) return;
-    for (const key of ["students", "studentDeck", "questionDeck", "usedStudentIds", "records", "currentId", "pendingStudentId", "phase", "timerEndsAt", "questionCycle"]) selected[key] = s[key];
+    for (const key of ["students", "studentDeck", "questionDeck", "usedStudentIds", "retryIds", "retryUsedIds", "records", "currentId", "pendingStudentId", "phase", "timerEndsAt", "questionCycle"]) selected[key] = s[key];
     selected.fileName = s.files.students || "";
   }
 
@@ -41,7 +41,7 @@
     const selected = s.classes.find((item) => item.id === id);
     if (!selected) return;
     s.activeClassId = id;
-    for (const key of ["students", "studentDeck", "questionDeck", "usedStudentIds", "records", "currentId", "pendingStudentId", "phase", "timerEndsAt", "questionCycle"]) s[key] = selected[key];
+    for (const key of ["students", "studentDeck", "questionDeck", "usedStudentIds", "retryIds", "retryUsedIds", "records", "currentId", "pendingStudentId", "phase", "timerEndsAt", "questionCycle"]) s[key] = selected[key];
     s.files.students = selected.fileName || "";
     if (["rolling", "student-rolling"].includes(s.phase)) { s.phase = "idle"; s.pendingStudentId = null; }
     if (s.phase === "question-rolling") s.phase = "student-ready";
@@ -59,7 +59,7 @@
         s.classes = Array.from({ length: 5 }, (_, index) => {
           const previous = saved.classes.find((item) => item?.id === `class-${index + 1}`) || {};
           const item = { ...newClass(index), ...previous };
-          for (const key of ["students", "studentDeck", "questionDeck", "usedStudentIds", "records"]) if (!Array.isArray(item[key])) item[key] = [];
+          for (const key of ["students", "studentDeck", "questionDeck", "usedStudentIds", "retryUsedIds", "records"]) if (!Array.isArray(item[key])) item[key] = [];
           return item;
         });
         if (!["en-zh", "zh-en", "mixed"].includes(s.mode)) s.mode = "mixed";
@@ -77,7 +77,7 @@
         s.mode = ["en-zh", "zh-en", "mixed"].includes(old.mode) ? old.mode : "mixed";
         s.sound = old.sound !== false;
         s.files = { students: old.files?.students || "", questions: old.files?.questions || "" };
-        for (const key of ["students", "studentDeck", "questionDeck", "usedStudentIds", "records"]) s[key] = Array.isArray(old[key]) ? old[key] : [];
+        for (const key of ["students", "studentDeck", "questionDeck", "usedStudentIds", "retryUsedIds", "records"]) s[key] = Array.isArray(old[key]) ? old[key] : [];
         for (const key of ["currentId", "phase", "timerEndsAt", "questionCycle"]) if (old[key] !== undefined) s[key] = old[key];
         snapshotActive(s);
         activateClass(s, "class-1");
@@ -116,7 +116,69 @@
   function directionName(direction) { return direction === "en-zh" ? "英 → 中" : "中 → 英"; }
   function studentById(id) { return state.students.find((student) => student.id === id); }
   function questionById(id) { return state.questions.find((question) => question.id === id); }
-  function remainingCount() { return Math.max(0, state.students.length - state.usedStudentIds.length); }
+  function drawIds() { return state.retryIds ?? state.students.map((student) => student.id); }
+  function drawnIds() { return state.retryIds === null ? state.usedStudentIds : state.retryUsedIds; }
+  function remainingCount() { return drawIds().filter((id) => !drawnIds().includes(id)).length; }
+  function passName() { return state.retryIds === null ? "第一轮" : "二次抽背"; }
+  function passComplete() {
+    const attempt = state.retryIds === null ? 1 : 2;
+    return drawIds().length > 0 && drawIds().every((id) => state.records.some((record) =>
+      record.studentId === id && (record.attempt || 1) === attempt && ["correct", "wrong"].includes(record.status))) &&
+      !["student-rolling", "student-ready", "question-rolling", "counting"].includes(state.phase);
+  }
+  function startRetry() {
+    if (state.retryIds !== null || !passComplete()) return;
+    const ids = state.records.filter((record) => record.status === "wrong").map((record) => record.studentId);
+    if (!ids.length) return;
+    stopTimerInterval(); clearRollInterval();
+    window.speechSynthesis?.cancel();
+    state.retryIds = [...new Set(ids)];
+    state.retryUsedIds = [];
+    state.studentDeck = shuffled(state.retryIds);
+    state.currentId = null; state.pendingStudentId = null; state.timerEndsAt = null;
+    state.phase = "idle"; preview = null;
+    save(); renderAll();
+    showToast(`开始二次抽背：${ids.length} 位同学，每人仅一次机会，继续随机抽题。`);
+  }
+  function reviewQuestions() {
+    const groups = new Map();
+    for (const record of state.records) {
+      if (!["correct", "wrong"].includes(record.status)) continue;
+      const en = record.direction === "en-zh" ? record.prompt : record.answer;
+      const zh = record.direction === "en-zh" ? record.answer : record.prompt;
+      const key = JSON.stringify([en.trim(), zh.trim()]);
+      const item = groups.get(key) || { en, zh, total: 0, wrong: 0 };
+      item.total++; if (record.status === "wrong") item.wrong++;
+      groups.set(key, item);
+    }
+    return [...groups.values()].filter((item) => item.wrong).sort((a, b) =>
+      b.wrong / b.total - a.wrong / a.total || b.wrong - a.wrong || a.en.localeCompare(b.en)).slice(0, 5);
+  }
+  function renderRoundSummary() {
+    const complete = passComplete();
+    const wrongCount = overviewData().wrongNames.length;
+    const summary = $("roundSummary");
+    summary.hidden = !state.students.length;
+    $("retryButton").hidden = state.retryIds !== null || !complete || !wrongCount;
+    const finished = complete && (state.retryIds !== null || !wrongCount);
+    $("roundSummaryTitle").textContent = finished ? "本次抽背已结束" : `${passName()}进度`;
+    $("roundSummaryText").textContent = finished
+      ? `最终答错 ${wrongCount} 人 · 可在全班概览中查看和复制名单。${state.retryIds !== null ? "二次结果为最终判定，不再追加抽背。" : "全班全部答对，无需二次抽背。"}`
+      : complete ? `第一轮全部判定完毕，${wrongCount} 位答错同学可获得一次二次抽背机会。`
+      : remainingCount() === 0 ? "本轮学生已抽完，请完成剩余题目和所有待判定记录。"
+      : `${passName()}：已抽 ${drawnIds().length} / ${drawIds().length} 人。${state.retryIds !== null ? "仅抽第一轮答错同学，以第二次结果为准。" : "全班完成并判定后，可开始答错同学二次抽背。"}`;
+    $("reviewPanel").hidden = !finished;
+    const list = $("reviewList"); list.replaceChildren();
+    if (!finished) return;
+    const questions = reviewQuestions();
+    if (!questions.length) list.append(makeText("p", "", "本次没有错题，大家都掌握得很好！"));
+    questions.forEach((item, index) => {
+      const card = makeText("article", "review-item", "");
+      card.append(makeText("strong", "", `${index + 1}. ${item.en}`), makeText("p", "", item.zh),
+        makeText("span", "", `答错率 ${Math.round(item.wrong / item.total * 100)}% · 答错 ${item.wrong} / 作答 ${item.total} 次`));
+      list.append(card);
+    });
+  }
   function activeClass() { return state.classes.find((item) => item.id === state.activeClassId); }
 
   function renderClassSelect() {
@@ -158,8 +220,8 @@
     el.questionCard.classList.toggle("is-audio-question", audioQuestion);
     el.studentCard.classList.toggle("is-rolling", studentRolling);
     el.questionCount.textContent = `题库 ${state.questions.length} 题`;
-    el.studentCount.textContent = `本轮 ${state.usedStudentIds.length} / ${state.students.length}`;
-    el.headerProgress.textContent = `本轮 ${state.usedStudentIds.length} / ${state.students.length}`;
+    el.studentCount.textContent = `${passName()} ${drawnIds().length} / ${drawIds().length}`;
+    el.headerProgress.textContent = `${passName()} ${drawnIds().length} / ${drawIds().length}`;
     el.activeClassCaption.textContent = `正在抽背：${activeClass().name} · ${state.students.length ? `${state.students.length} 位同学` : "请先导入名单"}`;
     el.remainingText.textContent = `还有 ${remainingCount()} 位同学待抽`;
     if (studentRolling && preview) {
@@ -211,7 +273,7 @@
     else if (state.phase === "counting") el.stageNote.textContent = "回答倒计时正在进行，时间到后可查看答案。";
     else if (state.phase === "await-check") el.stageNote.textContent = "时间到！点击 CHECK 查看答案，也可以稍后在 Record 中判定。";
     else if (state.phase === "answer") el.stageNote.textContent = "请在 Record 中标记答对或答错，或开始下一轮。";
-    else if (remainingCount() === 0) el.stageNote.textContent = "本轮同学已全部抽完，请在设置中手动开启新一轮。";
+    else if (remainingCount() === 0) el.stageNote.textContent = "本轮同学已全部抽完，请完成判定并查看下方二次抽背与复习区。";
     else el.stageNote.textContent = "点击“开始抽取”滚动学生姓名，再用 STOP 定格。";
   }
 
@@ -253,14 +315,18 @@
       el.recordList.append(empty);
       return;
     }
+    const finalRecords = new Map(state.records.map((record) => [record.studentId, record]));
     const sorted = [...state.records].sort((a, b) => Number(b.status === "wrong") - Number(a.status === "wrong") || b.createdAt - a.createdAt);
     for (const record of sorted) {
       const item = makeText("article", `record-item ${record.status === "wrong" ? "wrong" : record.status === "correct" ? "correct" : ""}`, "");
       const head = makeText("div", "record-item-head", "");
-      head.append(makeText("strong", "record-item-name", record.studentName));
+      head.append(makeText("strong", "record-item-name", `${record.studentName} · 第 ${record.attempt || 1} 次`));
       head.append(makeText("span", "record-item-time", new Date(record.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })));
       head.append(makeText("span", "record-status", record.status === "wrong" ? "答错" : record.status === "correct" ? "答对" : "待判定"));
       item.append(head);
+      if (state.retryIds !== null && (record.attempt || 1) === 1) {
+        item.append(makeText("p", "record-item-detail", finalRecords.get(record.studentId) !== record ? "首次记录已保留，当前结果以二次作答为准" : state.retryIds.includes(record.studentId) ? "首次答错 · 等待二次抽背" : "最终结果 · 首次答对"));
+      }
       const detail = makeText("p", "record-item-detail", `${directionName(record.direction)} · ${record.prompt}`);
       item.append(detail);
       if (record.revealed) {
@@ -279,6 +345,7 @@
         const correct = makeText("button", `record-action correct-choice ${record.status === "correct" ? "is-selected" : ""}`, "✓ 答对");
         const wrong = makeText("button", `record-action wrong-choice ${record.status === "wrong" ? "is-selected" : ""}`, "× 答错");
         correct.type = wrong.type = "button";
+        correct.disabled = wrong.disabled = state.retryIds !== null && (record.attempt || 1) === 1;
         correct.setAttribute("aria-pressed", String(record.status === "correct"));
         wrong.setAttribute("aria-pressed", String(record.status === "wrong"));
         correct.addEventListener("click", () => markRecord(record.id, "correct"));
@@ -295,7 +362,8 @@
     const used = new Set(state.usedStudentIds);
     const students = state.students.map((student, index) => {
       const record = records.get(student.id);
-      const status = record?.status === "wrong" ? "wrong" : record?.status === "correct" ? "correct" : used.has(student.id) ? "pending" : "undrawn";
+      const awaitingRetry = state.retryIds?.includes(student.id) && (record?.attempt || 1) !== 2;
+      const status = awaitingRetry ? "pending" : record?.status === "wrong" ? "wrong" : record?.status === "correct" ? "correct" : used.has(student.id) ? "pending" : "undrawn";
       return { ...student, index, status };
     });
     return { students, wrongNames: students.filter((student) => student.status === "wrong").map((student) => student.name) };
@@ -306,7 +374,7 @@
     const counts = { wrong: 0, correct: 0, pending: 0, undrawn: 0 };
     students.forEach((student) => { counts[student.status] += 1; });
     el.overviewTitle.textContent = `${activeClass().name} · 作答概览`;
-    el.overviewSummary.textContent = `本轮已抽 ${state.usedStudentIds.length} / ${state.students.length} 位同学 · 答错优先展示`;
+    el.overviewSummary.textContent = `本轮已抽 ${state.usedStudentIds.length} / ${state.students.length} 位同学 · ${state.retryIds !== null ? "以二次结果为准 · " : ""}答错优先展示`;
     el.overviewStats.replaceChildren();
     for (const [label, count, kind] of [["已抽", state.usedStudentIds.length, ""], ["答错", counts.wrong, "wrong"], ["答对", counts.correct, "correct"], ["待判定", counts.pending, "pending"], ["未抽", counts.undrawn, "undrawn"]]) {
       el.overviewStats.append(makeText("span", `overview-stat ${kind}`, `${label} ${count}`));
@@ -360,7 +428,7 @@
     for (const radio of document.querySelectorAll('input[name="roll-speed"]')) radio.checked = radio.value === state.rollSpeed;
   }
 
-  function renderAll() { renderClassSelect(); renderDraw(); renderControls(); renderTimer(); renderRecords(); renderFilesAndMode(); if (el.recordOverviewDialog.open) renderOverview(); }
+  function renderAll() { renderClassSelect(); renderDraw(); renderControls(); renderTimer(); renderRecords(); renderRoundSummary(); renderFilesAndMode(); if (el.recordOverviewDialog.open) renderOverview(); }
 
   function ensureAudio() {
     if (!state.sound) return;
@@ -418,7 +486,7 @@
   }
 
   function studentCandidate() {
-    const id = choose(state.studentDeck.filter((studentId) => !state.usedStudentIds.includes(studentId)));
+    const id = choose(state.studentDeck.filter((studentId) => drawIds().includes(studentId) && !drawnIds().includes(studentId)));
     const student = studentById(id);
     return student ? { studentId: student.id, studentName: student.name } : null;
   }
@@ -435,7 +503,7 @@
     if (remainingCount() === 0) { showToast("本轮所有同学都抽过了，请手动重置本轮。"); return; }
     if (["counting", "student-ready", "student-rolling", "question-rolling"].includes(state.phase)) return;
     if (!state.studentDeck.length) {
-      const remaining = state.students.filter((student) => !state.usedStudentIds.includes(student.id)).map((student) => student.id);
+      const remaining = drawIds().filter((id) => !drawnIds().includes(id));
       state.studentDeck = shuffled(remaining);
     }
     preview = studentCandidate();
@@ -452,11 +520,11 @@
     if (state.phase !== "student-rolling") return;
     clearRollInterval();
     const student = studentById(preview?.studentId);
-    if (!student || state.usedStudentIds.includes(student.id)) { state.phase = "idle"; preview = null; save(); renderAll(); showToast("抽取学生失败，请重新试一次。"); return; }
+    if (!student || drawnIds().includes(student.id)) { state.phase = "idle"; preview = null; save(); renderAll(); showToast("抽取学生失败，请重新试一次。"); return; }
     const deckIndex = state.studentDeck.indexOf(student.id);
     if (deckIndex >= 0) state.studentDeck.splice(deckIndex, 1);
     state.pendingStudentId = student.id;
-    state.usedStudentIds.push(student.id);
+    drawnIds().push(student.id);
     state.phase = "student-ready";
     preview = null;
     save(); renderAll();
@@ -491,6 +559,7 @@
       id: makeId("answer"), studentId: student.id, studentName: student.name, questionId: question.id,
       direction, prompt: direction === "en-zh" ? question.en : question.zh,
       answer: direction === "en-zh" ? question.zh : question.en,
+      attempt: state.retryIds === null ? 1 : 2,
       status: "pending", revealed: false, timerDurationMs: state.timerSeconds * 1000, createdAt: Date.now()
     };
     state.records.push(record);
@@ -533,7 +602,8 @@
 
   function markRecord(id, status) {
     const record = state.records.find((item) => item.id === id);
-    if (!record || !record.revealed) return;
+    if (!record || !record.revealed || !["correct", "wrong"].includes(status)) return;
+    if (state.retryIds !== null && (record.attempt || 1) === 1) return;
     record.status = status;
     save(); renderAll();
   }
@@ -545,6 +615,7 @@
     state.studentDeck = shuffled(state.students.map((student) => student.id));
     state.questionDeck = shuffled(state.questions.map((question) => question.id));
     state.usedStudentIds = [];
+    state.retryIds = null; state.retryUsedIds = [];
     state.records = [];
     state.currentId = null;
     state.pendingStudentId = null;
@@ -698,6 +769,7 @@
     if (state.phase === "counting" && Date.now() >= state.timerEndsAt) state.phase = "await-check";
     save(); renderAll();
     if (state.phase === "counting") startTimerInterval();
+    $("retryButton").addEventListener("click", startRetry);
     el.startButton.addEventListener("click", handleDrawAction);
     el.stopButton.addEventListener("click", stopRolling);
     el.checkButton.addEventListener("click", () => { if (state.currentId) revealAnswer(state.currentId); });

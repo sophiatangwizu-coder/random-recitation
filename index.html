@@ -42,7 +42,7 @@
             <span class="card-label"><span class="label-dot"></span> QUESTION · 题目</span>
             <span class="card-counter" id="questionCount">题库 0 题</span>
           </div>
-          <div class="draw-content">
+          <div class="draw-content" tabindex="0" role="region" aria-label="题目内容，长题可在此滚动查看">
             <p class="draw-hint" id="questionHint">先导入 Word 题库</p>
             <div class="draw-value" id="questionValue">准备好开始了吗？</div>
             <button class="audio-question-button" id="audioQuestionButton" type="button" hidden aria-label="播放题目语音" title="播放题目语音">🔊<span>点击播放题目</span></button>
@@ -75,6 +75,16 @@
           </div>
         </article>
 
+        <section class="round-summary" id="roundSummary" aria-label="二次抽背与复习" hidden>
+          <h3 id="roundSummaryTitle">第一轮进度</h3>
+          <p id="roundSummaryText" role="status"></p>
+          <button id="retryButton" class="apply-button" type="button" hidden>开始答错同学二次抽背</button>
+          <div id="reviewPanel" hidden>
+            <h3>全班一起复习 · 易错题 TOP 5</h3>
+            <p class="review-explainer">按两次抽背的答错次数 ÷ 已判定作答次数排序；同率时答错次数多的优先。同一英汉词条合并统计，二次答对也保留首次错误。</p>
+            <div id="reviewList"></div>
+          </div>
+        </section>
         <p class="stage-note" id="stageNote" role="status">导入名单与题库后，就可以开始抽背啦。</p>
       </section>
 
