@@ -68,6 +68,7 @@
           <div class="draw-content student-content">
             <p class="draw-hint" id="studentHint">先导入 Excel 名单</p>
             <div class="draw-value" id="studentValue">幸运同学是谁？</div>
+            <button id="absentButton" class="record-action absent-button" type="button" disabled>缺席 · 跳过抽题</button>
           </div>
           <div class="card-bottomline">
             <span class="student-remaining" id="remainingText">还有 0 位同学待抽</span>
@@ -124,11 +125,14 @@
         <label class="upload-box" for="studentFile"><span class="upload-emoji">👥</span><span><strong id="studentFileLabel">选择 Excel 文件</strong><small>支持 .xlsx / .xls</small></span><span class="upload-arrow">＋</span></label>
         <input class="visually-hidden" id="studentFile" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
       </section>
-      <section class="settings-section"><div class="settings-section-head"><span class="settings-number">02</span><div><h3>更新英汉题库</h3><p>Word 每段一题，例如：1. daily routine 每日常规。更新题库不会清空各班已抽记录。</p></div></div>
+      <section class="settings-section"><div class="settings-section-head"><span class="settings-number">02</span><div><h3>英汉题库管理</h3><p>最多保留 5 个题库，导入新题库不会覆盖旧题库。Word 每段一题；导入后可核对修改，再确认保存。</p></div></div>
+        <div class="class-settings-picker"><label for="bankSelect">使用题库</label><select id="bankSelect"></select></div>
+        <p id="bankCapacity"></p>
+        <div class="bank-actions"><button id="editBank" type="button" class="record-action">核对 / 修改题库</button><button id="deleteBank" type="button" class="record-action">删除当前题库</button></div>
         <label class="upload-box pink-upload" for="questionFile"><span class="upload-emoji">📚</span><span><strong id="questionFileLabel">选择 DOCX 文件</strong><small>支持 .docx</small></span><span class="upload-arrow">＋</span></label>
         <input class="visually-hidden" id="questionFile" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
       </section>
-      <div class="import-preview" id="importPreview" hidden><div class="preview-top"><strong id="previewTitle">导入预览</strong><button id="cancelImport" type="button" aria-label="取消导入">×</button></div><p id="previewSummary"></p><ul id="previewExamples"></ul><p class="preview-warning" id="previewWarning" hidden></p><button class="apply-button" id="applyImport" type="button">确认导入</button></div>
+      <div class="import-preview" id="importPreview" hidden><div class="preview-top"><strong id="previewTitle">导入预览</strong><button id="cancelImport" type="button" aria-label="取消导入">×</button></div><p id="previewSummary"></p><label id="bankNameRow" hidden>题库名称<input id="bankNameInput" maxlength="60" type="text"></label><ul id="previewExamples"></ul><button id="addQuestionRow" type="button" class="record-action" hidden>＋ 补充一题</button><p class="preview-warning" id="previewWarning" hidden></p><button class="apply-button" id="applyImport" type="button">确认导入</button></div>
       <section class="settings-section"><div class="settings-section-head"><span class="settings-number">03</span><div><h3>出题方向</h3><p>互相转化会在每次抽取时随机决定方向。</p></div></div>
         <div class="mode-options"><label><input type="radio" name="direction" value="en-zh"><span>英 → 中</span></label><label><input type="radio" name="direction" value="zh-en"><span>中 → 英</span></label><label><input type="radio" name="direction" value="mixed"><span>互相转化</span></label></div>
       </section>
