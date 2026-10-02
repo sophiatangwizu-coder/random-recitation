@@ -20,12 +20,12 @@
 
   const newClass = (index) => ({
     id: `class-${index + 1}`, name: `班级 ${index + 1}`, students: [], studentDeck: [], questionDeck: [],
-    usedStudentIds: [], retryIds: null, retryUsedIds: [], records: [], currentId: null, pendingStudentId: null, phase: "idle", timerEndsAt: null, questionCycle: 1, fileName: ""
+    drawLimit: null, usedStudentIds: [], retryIds: null, retryUsedIds: [], records: [], currentId: null, pendingStudentId: null, phase: "idle", timerEndsAt: null, questionCycle: 1, fileName: ""
   });
 
   const newState = () => ({
     version: 2, classes: Array.from({ length: 5 }, (_, index) => newClass(index)), activeClassId: "class-1",
-    questionBanks: [], activeBankId: null, students: [], questions: [], studentDeck: [], questionDeck: [], usedStudentIds: [], retryIds: null, retryUsedIds: [], records: [],
+    questionBanks: [], activeBankId: null, students: [], questions: [], studentDeck: [], questionDeck: [], drawLimit: null, usedStudentIds: [], retryIds: null, retryUsedIds: [], records: [],
     currentId: null, pendingStudentId: null, mode: "mixed", questionType: "text", timerSeconds: DEFAULT_TIMER_SECONDS, rollSpeed: "normal", sound: true, phase: "idle", timerEndsAt: null, questionCycle: 1,
     files: { students: "", questions: "" }
   });
@@ -33,7 +33,7 @@
   function snapshotActive(s) {
     const selected = s.classes.find((item) => item.id === s.activeClassId);
     if (!selected) return;
-    for (const key of ["students", "studentDeck", "questionDeck", "usedStudentIds", "retryIds", "retryUsedIds", "records", "currentId", "pendingStudentId", "phase", "timerEndsAt", "questionCycle"]) selected[key] = s[key];
+    for (const key of ["students", "studentDeck", "questionDeck", "usedStudentIds", "drawLimit", "retryIds", "retryUsedIds", "records", "currentId", "pendingStudentId", "phase", "timerEndsAt", "questionCycle"]) selected[key] = s[key];
     selected.fileName = s.files.students || "";
   }
 
@@ -41,7 +41,7 @@
     const selected = s.classes.find((item) => item.id === id);
     if (!selected) return;
     s.activeClassId = id;
-    for (const key of ["students", "studentDeck", "questionDeck", "usedStudentIds", "retryIds", "retryUsedIds", "records", "currentId", "pendingStudentId", "phase", "timerEndsAt", "questionCycle"]) s[key] = selected[key];
+    for (const key of ["students", "studentDeck", "questionDeck", "usedStudentIds", "drawLimit", "retryIds", "retryUsedIds", "records", "currentId", "pendingStudentId", "phase", "timerEndsAt", "questionCycle"]) s[key] = selected[key];
     s.files.students = selected.fileName || "";
     if (["rolling", "student-rolling"].includes(s.phase)) { s.phase = "idle"; s.pendingStudentId = null; }
     if (s.phase === "question-rolling") s.phase = "student-ready";
@@ -60,6 +60,7 @@
           const previous = saved.classes.find((item) => item?.id === `class-${index + 1}`) || {};
           const item = { ...newClass(index), ...previous };
           for (const key of ["students", "studentDeck", "questionDeck", "usedStudentIds", "retryUsedIds", "records"]) if (!Array.isArray(item[key])) item[key] = [];
+          if (!Number.isInteger(item.drawLimit) || item.drawLimit < 1) item.drawLimit = null;
           return item;
         });
         if (!["en-zh", "zh-en", "mixed"].includes(s.mode)) s.mode = "mixed";
@@ -103,6 +104,7 @@
   let state = loadState();
   let preview = null;
   let pendingImport = null;
+  let displayedImport = null;
   let rollInterval = null;
   let timerInterval = null;
   let toastTimeout = null;
@@ -131,11 +133,30 @@
   function questionById(id) { return state.questions.find((question) => question.id === id); }
   function drawIds() { return state.retryIds ?? state.students.map((student) => student.id); }
   function drawnIds() { return state.retryIds === null ? state.usedStudentIds : state.retryUsedIds; }
-  function remainingCount() { return drawIds().filter((id) => !drawnIds().includes(id)).length; }
+  function firstPassTarget() { return Math.min(state.drawLimit ?? state.students.length, state.students.length); }
+  function passTarget() { return state.retryIds === null ? firstPassTarget() : state.retryIds.length; }
+  function countedDraws(attempt = state.retryIds === null ? 1 : 2) {
+    const used = attempt === 1 ? state.usedStudentIds : state.retryUsedIds;
+    const absent = new Set(state.records.filter((r) => (r.attempt || 1) === attempt && r.status === "absent").map((r) => r.studentId));
+    return used.filter((id) => !absent.has(id)).length;
+  }
+  function availableCount() { return drawIds().filter((id) => !drawnIds().includes(id)).length; }
+  function remainingCount() { return Math.min(availableCount(), Math.max(0, passTarget() - countedDraws())); }
+  function limitLocked() { return state.usedStudentIds.length > 0 || state.phase === "student-rolling"; }
+  function saveDrawLimit() {
+    if (limitLocked()) { showToast("本轮已开始，请重置本轮后修改人数。"); return; }
+    const custom = $("drawScope").value === "custom";
+    const value = Number($("drawLimitInput").value);
+    if (custom && (!Number.isInteger(value) || value < 1 || value > state.students.length)) {
+      showToast(`请输入 1 至 ${state.students.length} 之间的整数；请先导入名单。`); return;
+    }
+    state.drawLimit = custom ? value : null;
+    save(); renderAll(); showToast(`第一轮将随机抽取 ${firstPassTarget()} 位同学。`);
+  }
   function passName() { return state.retryIds === null ? "第一轮" : "二次抽背"; }
   function passComplete() {
     const attempt = state.retryIds === null ? 1 : 2;
-    return drawIds().length > 0 && drawIds().every((id) => state.records.some((record) =>
+    return passTarget() > 0 && remainingCount() === 0 && drawnIds().every((id) => state.records.some((record) =>
       record.studentId === id && (record.attempt || 1) === attempt && ["correct", "wrong", "absent"].includes(record.status))) &&
       !["student-rolling", "student-ready", "question-rolling", "counting"].includes(state.phase);
   }
@@ -176,10 +197,10 @@
     const finished = complete && (state.retryIds !== null || !wrongCount);
     $("roundSummaryTitle").textContent = finished ? "本次抽背已结束" : `${passName()}进度`;
     $("roundSummaryText").textContent = finished
-      ? `最终答错 ${wrongCount} 人 · 可在全班概览中查看和复制名单。${state.retryIds !== null ? "二次结果为最终判定，不再追加抽背。" : "已作答同学无答错，无需二次抽背；缺席人数见全班概览。"}`
+      ? `本轮实际抽选 ${countedDraws()} / ${passTarget()} 人（缺席不计）；最终答错 ${wrongCount} 人 · 可在全班概览中查看和复制名单。${state.retryIds !== null ? "二次结果为最终判定，不再追加抽背。" : "已作答同学无答错，无需二次抽背；缺席人数见全班概览。"}`
       : complete ? `第一轮全部判定完毕，${wrongCount} 位答错同学可获得一次二次抽背机会。`
-      : remainingCount() === 0 ? "本轮学生已抽完，请完成剩余题目和所有待判定记录。"
-      : `${passName()}：已抽 ${drawnIds().length} / ${drawIds().length} 人。${state.retryIds !== null ? "仅抽第一轮答错同学，以第二次结果为准。" : "全班完成并判定后，可开始答错同学二次抽背。"}`;
+      : remainingCount() === 0 ? "本轮名额已满或可抽学生已用完，请完成剩余题目和所有待判定记录。"
+      : `${passName()}：已抽 ${countedDraws()} / ${passTarget()} 人。${state.retryIds !== null ? "仅抽第一轮答错同学，以第二次结果为准。" : "达到本轮人数并全部判定后，可开始答错同学二次抽背。"}`;
     $("reviewPanel").hidden = !finished;
     const list = $("reviewList"); list.replaceChildren();
     if (!finished) return;
@@ -233,8 +254,8 @@
     el.questionCard.classList.toggle("is-audio-question", audioQuestion);
     el.studentCard.classList.toggle("is-rolling", studentRolling);
     el.questionCount.textContent = `题库 ${state.questions.length} 题`;
-    el.studentCount.textContent = `${passName()} ${drawnIds().length} / ${drawIds().length}`;
-    el.headerProgress.textContent = `${passName()} ${drawnIds().length} / ${drawIds().length}`;
+    el.studentCount.textContent = `${passName()} ${countedDraws()} / ${passTarget()}`;
+    el.headerProgress.textContent = `${passName()} ${countedDraws()} / ${passTarget()}`;
     el.activeClassCaption.textContent = `正在抽背：${activeClass().name} · ${state.students.length ? `${state.students.length} 位同学` : "请先导入名单"}`;
     el.remainingText.textContent = `还有 ${remainingCount()} 位同学待抽`;
     if (studentRolling && preview) {
@@ -286,7 +307,7 @@
     else if (state.phase === "counting") el.stageNote.textContent = "回答倒计时正在进行，时间到后可查看答案。";
     else if (state.phase === "await-check") el.stageNote.textContent = "时间到！点击 CHECK 查看答案，也可以稍后在 Record 中判定。";
     else if (state.phase === "answer") el.stageNote.textContent = "请在 Record 中标记答对或答错，或开始下一轮。";
-    else if (remainingCount() === 0) el.stageNote.textContent = "本轮同学已全部抽完，请完成判定并查看下方二次抽背与复习区。";
+    else if (remainingCount() === 0) el.stageNote.textContent = "本轮名额已满或可抽学生已用完，请完成判定并查看下方二次抽背与复习区。";
     else el.stageNote.textContent = "点击“开始抽取”滚动学生姓名，再用 STOP 定格。";
   }
 
@@ -321,7 +342,7 @@
   }
 
   function renderRecords() {
-    el.recordCount.textContent = `${state.usedStudentIds.length} / ${state.students.length}`;
+    el.recordCount.textContent = `${countedDraws(1)} / ${firstPassTarget()}`;
     el.recordList.replaceChildren();
     if (!state.records.length) {
       const empty = makeText("div", "record-empty", "");
@@ -392,9 +413,9 @@
     const counts = { absent: 0, wrong: 0, correct: 0, pending: 0, undrawn: 0 };
     students.forEach((student) => { counts[student.status] += 1; });
     el.overviewTitle.textContent = `${activeClass().name} · 作答概览`;
-    el.overviewSummary.textContent = `本轮已抽 ${state.usedStudentIds.length} / ${state.students.length} 位同学 · ${state.retryIds !== null ? "以二次结果为准 · " : ""}答错优先展示`;
+    el.overviewSummary.textContent = `第一轮已抽 ${countedDraws(1)} / ${firstPassTarget()} 位 · 全班 ${state.students.length} 人 · ${state.retryIds !== null ? "以二次结果为准 · " : ""}答错优先展示`;
     el.overviewStats.replaceChildren();
-    for (const [label, count, kind] of [["已抽", state.usedStudentIds.length, ""], ["答错", counts.wrong, "wrong"], ["答对", counts.correct, "correct"], ["待判定", counts.pending, "pending"], ["未抽", counts.undrawn, "undrawn"], ["缺席", counts.absent, "absent"]]) {
+    for (const [label, count, kind] of [["已抽", countedDraws(1), ""], ["答错", counts.wrong, "wrong"], ["答对", counts.correct, "correct"], ["待判定", counts.pending, "pending"], ["未抽", counts.undrawn, "undrawn"], ["缺席", counts.absent, "absent"]]) {
       el.overviewStats.append(makeText("span", `overview-stat ${kind}`, `${label} ${count}`));
     }
     el.overviewGrid.replaceChildren();
@@ -469,6 +490,13 @@
     activateClass(state, state.activeClassId);
   }
   function renderFilesAndMode() {
+    $("drawScope").value = state.drawLimit === null ? "all" : "custom";
+    $("drawLimitInput").value = state.drawLimit ?? "";
+    $("drawLimitInput").max = String(state.students.length);
+    $("drawLimitRow").hidden = state.drawLimit === null;
+    for (const id of ["drawScope", "drawLimitInput", "saveDrawLimit"]) $(id).disabled = limitLocked();
+    $("drawLimitNote").textContent = `本班第一轮目标：${firstPassTarget()} 人（全班 ${state.students.length} 人）。缺席不占名额，自动补抽其他同学。${limitLocked() ? "本轮已锁定，重置后可修改。" : "选择后点击保存人数，从全班随机抽取。"}`;
+
     const select = $("bankSelect");
     select.replaceChildren(...state.questionBanks.map((bank) => {
       const option = makeText("option", "", `${bank.name} · ${bank.entries.length} 题`); option.value = bank.id; return option;
@@ -558,7 +586,7 @@
 
   function startStudentRolling() {
     if (!state.students.length || !state.questions.length) { el.settingsDialog.showModal(); showToast("请先导入学生名单和英汉题库。"); return; }
-    if (remainingCount() === 0) { showToast("本轮所有同学都抽过了，请手动重置本轮。"); return; }
+    if (remainingCount() === 0) { showToast("本轮名额已满或可抽学生已用完，请完成判定；有答错同学可开始二次抽背。"); return; }
     if (["counting", "student-ready", "student-rolling", "question-rolling"].includes(state.phase)) return;
     if (!state.studentDeck.length) {
       const remaining = drawIds().filter((id) => !drawnIds().includes(id));
@@ -695,6 +723,7 @@
     if (state.students.length && !state.studentDeck.length && !state.usedStudentIds.length) state.studentDeck = shuffled(state.students.map((student) => student.id));
     if (state.questions.length && !state.questionDeck.length && !state.records.length) state.questionDeck = shuffled(state.questions.map((question) => question.id));
     pendingImport = null;
+    $("manualStudentNames").value = "";
     showImportPreview();
     save(); renderAll();
     if (state.phase === "counting") startTimerInterval();
@@ -743,9 +772,27 @@
     return { entries, rejected: duplicate };
   }
 
+  function previewManualStudents() {
+    const entries = [], rejected = [], seen = new Set();
+    for (const line of $("manualStudentNames").value.split(/\r?\n/)) {
+      const name = line.trim();
+      if (!name) continue;
+      const key = name.toLocaleLowerCase();
+      if (seen.has(key)) { rejected.push(name); continue; }
+      seen.add(key); entries.push({ id: makeId("s"), name });
+    }
+    pendingImport = { kind: "students", classId: state.activeClassId, fileName: "网页手动名单", entries, rejected };
+    showImportPreview();
+    if (!entries.length) showToast("请填写姓名，每行一位学生。");
+  }
+
   function showImportPreview() {
-    if (!pendingImport) { el.importPreview.hidden = true; return; }
+    if (!pendingImport) { el.importPreview.hidden = true; displayedImport = null; return; }
     const isStudents = pendingImport.kind === "students";
+    const isNewPreview = displayedImport !== pendingImport;
+    const slot = $(isStudents ? "studentPreviewSlot" : "questionPreviewSlot");
+    if (el.importPreview.parentElement !== slot) slot.append(el.importPreview);
+    displayedImport = pendingImport;
     el.importPreview.hidden = false;
     el.previewTitle.textContent = isStudents ? "名单导入预览" : "题库导入预览";
     el.previewSummary.textContent = `文件：${pendingImport.fileName} · ${isStudents ? `${activeClass().name} · ` : ""}识别 ${pendingImport.entries.length} ${isStudents ? "位学生" : "道词条"}`;
@@ -754,7 +801,7 @@
     $("addQuestionRow").hidden = isStudents;
     $("bankNameInput").value = pendingImport.name || pendingImport.fileName.replace(/\.docx$/i, "");
     if (isStudents) {
-      for (const item of pendingImport.entries.slice(0, 5)) el.previewExamples.append(makeText("li", "", item.name));
+      for (const item of pendingImport.entries) el.previewExamples.append(makeText("li", "", item.name));
     } else {
       pendingImport.entries.forEach((item, index) => {
         const row = makeText("li", "question-edit-row", "");
@@ -772,6 +819,10 @@
     el.previewWarning.hidden = pendingImport.rejected.length === 0;
     el.previewWarning.textContent = pendingImport.rejected.length ? `${isStudents ? "重复姓名" : "无法识别的段落"} ${pendingImport.rejected.length} 条，导入时将跳过。${pendingImport.rejected.slice(0, 3).join("；")}` : "";
     el.applyImport.disabled = pendingImport.entries.length === 0;
+    if (isNewPreview) {
+      el.previewTitle.focus?.({ preventScroll: true });
+      el.importPreview.scrollIntoView?.({ block: "nearest", behavior: "instant" });
+    }
   }
 
   async function handleFile(kind, file) {
@@ -841,6 +892,10 @@
     pendingImport = null;
     showImportPreview();
     renderAll();
+    if (kind === "students") {
+      $("manualRoster").open = false;
+      $("manualRoster").querySelector?.("summary")?.focus({ preventScroll: true });
+    }
     if (kind === "questions") el.settingsDialog.close();
     showToast(kind === "students" ? `已为${activeClass().name}导入 ${entries.length} 位学生，该班本轮进度已重置。` : `题库已保存，共 ${entries.length} 道词条；旧题库和作答记录仍保留。`);
   }
@@ -859,6 +914,9 @@
     if (state.phase === "counting" && Date.now() >= state.timerEndsAt) state.phase = "await-check";
     save(); renderAll();
     if (state.phase === "counting") startTimerInterval();
+    $("previewManualStudents").addEventListener("click", previewManualStudents);
+    $("drawScope").addEventListener("change", () => { $("drawLimitRow").hidden = $("drawScope").value !== "custom"; });
+    $("saveDrawLimit").addEventListener("click", saveDrawLimit);
     $("retryButton").addEventListener("click", startRetry);
     $("absentButton").addEventListener("click", markAbsent);
     $("bankNameInput").addEventListener("input", () => { if (pendingImport) pendingImport.name = $("bankNameInput").value; });

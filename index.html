@@ -118,11 +118,18 @@
   <dialog class="settings-dialog" id="settingsDialog" aria-labelledby="settingsTitle">
     <div class="dialog-head"><div><p class="section-kicker">YOUR CLASSROOM, YOUR RULES</p><h2 id="settingsTitle">抽背设置</h2></div><button class="dialog-close" id="closeSettings" type="button" aria-label="关闭设置">×</button></div>
     <div class="dialog-body">
-      <section class="settings-section"><div class="settings-section-head"><span class="settings-number">01</span><div><h3>固定班级名单</h3><p>5 个班级分别保存名单。选择班级后导入该班 Excel。</p></div></div>
+      <section class="settings-section"><div class="settings-section-head"><span class="settings-number">01</span><div><h3>固定班级名单</h3><p>5 个班级分别保存名单。选择班级后，可导入 Excel 或直接填写姓名。</p></div></div>
         <div class="class-settings-picker"><label for="settingsClassSelect">正在设置</label><select id="settingsClassSelect" aria-label="在设置中选择班级"></select></div>
         <div class="class-name-row"><label for="classNameInput">当前班级名称</label><input id="classNameInput" type="text" maxlength="24" placeholder="例如：三年级一班"><button id="saveClassName" type="button">保存名称</button></div>
         <p class="class-roster-note" id="classRosterNote">当前班级尚未导入名单</p>
         <label class="upload-box" for="studentFile"><span class="upload-emoji">👥</span><span><strong id="studentFileLabel">选择 Excel 文件</strong><small>支持 .xlsx / .xls</small></span><span class="upload-arrow">＋</span></label>
+        <details class="manual-roster" id="manualRoster"><summary>少量学生？直接填写名单</summary>
+          <label for="manualStudentNames">每行一位学生，可直接粘贴多行姓名</label>
+          <textarea id="manualStudentNames" rows="6" placeholder="张三&#10;李四&#10;王五"></textarea>
+          <p>预览核对后确认保存。将替换当前班级名单；已有抽背进度会提示确认后清空。空行忽略，重复姓名只保留一次。</p>
+          <button id="previewManualStudents" type="button" class="record-action">预览并核对名单</button>
+        </details>
+        <div id="studentPreviewSlot"></div>
         <input class="visually-hidden" id="studentFile" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
       </section>
       <section class="settings-section"><div class="settings-section-head"><span class="settings-number">02</span><div><h3>英汉题库管理</h3><p>最多保留 5 个题库，导入新题库不会覆盖旧题库。Word 每段一题；导入后可核对修改，再确认保存。</p></div></div>
@@ -130,9 +137,10 @@
         <p id="bankCapacity"></p>
         <div class="bank-actions"><button id="editBank" type="button" class="record-action">核对 / 修改题库</button><button id="deleteBank" type="button" class="record-action">删除当前题库</button></div>
         <label class="upload-box pink-upload" for="questionFile"><span class="upload-emoji">📚</span><span><strong id="questionFileLabel">选择 DOCX 文件</strong><small>支持 .docx</small></span><span class="upload-arrow">＋</span></label>
+        <div id="questionPreviewSlot"></div>
         <input class="visually-hidden" id="questionFile" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
       </section>
-      <div class="import-preview" id="importPreview" hidden><div class="preview-top"><strong id="previewTitle">导入预览</strong><button id="cancelImport" type="button" aria-label="取消导入">×</button></div><p id="previewSummary"></p><label id="bankNameRow" hidden>题库名称<input id="bankNameInput" maxlength="60" type="text"></label><ul id="previewExamples"></ul><button id="addQuestionRow" type="button" class="record-action" hidden>＋ 补充一题</button><p class="preview-warning" id="previewWarning" hidden></p><button class="apply-button" id="applyImport" type="button">确认导入</button></div>
+      <div class="import-preview" id="importPreview" hidden><div class="preview-top"><strong id="previewTitle" tabindex="-1">导入预览</strong><button id="cancelImport" type="button" aria-label="取消导入">×</button></div><p id="previewSummary"></p><label id="bankNameRow" hidden>题库名称<input id="bankNameInput" maxlength="60" type="text"></label><ul id="previewExamples"></ul><button id="addQuestionRow" type="button" class="record-action" hidden>＋ 补充一题</button><p class="preview-warning" id="previewWarning" hidden></p><button class="apply-button" id="applyImport" type="button">确认导入</button></div>
       <section class="settings-section"><div class="settings-section-head"><span class="settings-number">03</span><div><h3>出题方向</h3><p>互相转化会在每次抽取时随机决定方向。</p></div></div>
         <div class="mode-options"><label><input type="radio" name="direction" value="en-zh"><span>英 → 中</span></label><label><input type="radio" name="direction" value="zh-en"><span>中 → 英</span></label><label><input type="radio" name="direction" value="mixed"><span>互相转化</span></label></div>
       </section>
@@ -144,6 +152,13 @@
       </section>
       <section class="settings-section"><div class="settings-section-head"><span class="settings-number">05</span><div><h3>滚动速度</h3><p>学生姓名和题目使用同一档速度，修改后立即生效。</p></div></div>
         <div class="speed-options" role="group" aria-label="学生和题目的滚动速度"><label><input type="radio" name="roll-speed" value="slow"><span>慢速</span></label><label><input type="radio" name="roll-speed" value="normal"><span>适中</span></label><label><input type="radio" name="roll-speed" value="fast"><span>快速</span></label></div>
+      </section>
+      <section class="settings-section">
+        <h3>第一轮抽选人数</h3>
+        <div class="class-settings-picker"><label for="drawScope">抽选范围</label><select id="drawScope"><option value="all">全部学生</option><option value="custom">自定义人数</option></select></div>
+        <div class="class-name-row" id="drawLimitRow" hidden><label for="drawLimitInput">抽选人数</label><input id="drawLimitInput" type="number" min="1" step="1" inputmode="numeric" placeholder="例如：10"></div>
+        <button id="saveDrawLimit" type="button" class="apply-button">保存人数</button>
+        <p id="drawLimitNote"></p>
       </section>
       <section class="settings-section reset-section"><div><h3>当前班级开启新一轮</h3><p>只清空所选班级的抽取进度和 Record，保留 5 个班级名单与题库。</p></div><button id="resetRound" type="button">重置本轮</button></section>
       <p class="dialog-footnote">名单、题库和记录保存在当前设备的这个浏览器。更换设备或清除网站数据后，需要重新导入名单；导入新名单只重置当前班级。</p>

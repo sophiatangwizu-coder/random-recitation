@@ -70,3 +70,21 @@ footer{text-align:center;margin:30px 0 0;font-size:10px;font-weight:900;letter-s
 #reviewPanel{margin-top:22px}.review-explainer{color:#84728e}.review-item{padding:15px;margin-top:10px;border:1px solid #eee0ea;border-radius:12px;background:white;overflow-wrap:anywhere}.review-item strong{font-size:20px}.review-item p{margin:6px 0}.review-item>span{font-size:13px;color:#ba5076}
 
 .absent-button{margin-top:12px}.bank-actions{display:flex;gap:10px;margin:10px 0}#bankNameRow{display:flex;gap:8px;align-items:center;font-size:12px}#bankNameInput{width:100%;min-width:0;padding:8px;border:1px solid #ddcde7;border-radius:8px}#previewExamples{max-height:340px;overflow:auto;padding:0;list-style:none}.question-edit-row{display:grid;gap:7px;padding:12px 0;border-bottom:1px solid #e6d8d1}.question-edit-row textarea{width:100%;resize:vertical;font:inherit;font-size:13px;padding:8px;border:1px solid #ddcde7;border-radius:8px}.question-edit-row button{justify-self:start}.overview-stat.absent,.overview-student.absent{background:#fff4dd;color:#947335}
+
+.manual-roster{margin-top:12px;border:1px solid #cde4df;border-radius:12px;padding:12px;background:#f7fffc}.manual-roster summary{cursor:pointer;color:#357b70;font-size:13px;font-weight:800}.manual-roster label{display:block;margin:12px 0 6px;font-size:12px}.manual-roster textarea{width:100%;resize:vertical;padding:10px;font:inherit;font-size:14px;border:1px solid #bddcd5;border-radius:8px}.manual-roster button{margin-top:10px}
+
+/* One scrolling surface for settings: no competing dialog/body/list heights. */
+.settings-dialog{max-height:min(90vh,820px);max-height:min(90dvh,820px);overflow-y:auto;overscroll-behavior-y:contain;scroll-padding-top:115px;background:#fff}
+.settings-dialog .dialog-head{position:sticky;top:0;z-index:3}
+.settings-dialog .dialog-body{max-height:none;overflow:visible}
+.settings-dialog #previewExamples{max-height:none;overflow:visible}
+.settings-dialog .import-preview{margin:14px 0 0;scroll-margin-block:12px}
+.settings-dialog .import-preview p{margin:7px 0;font-size:12px;color:#766b63;overflow-wrap:anywhere}
+.settings-dialog .import-preview .preview-warning{color:#c5655f}
+#previewTitle:focus{outline:2px solid #ad91ef;outline-offset:4px;border-radius:3px}
+
+/* Separate the roster quota action from its fields and explanatory text. */
+#saveDrawLimit{display:block;margin:14px 0 12px;padding:11px 20px;min-height:42px;background:#7057bd;color:#fff;border:1px solid #7057bd;border-radius:10px;font-size:13px}
+#saveDrawLimit:hover:not(:disabled){background:#5d439f;border-color:#5d439f}
+.settings-section #drawLimitNote{margin:0;line-height:1.7}
+#drawLimitRow{margin-top:12px;margin-bottom:0}
